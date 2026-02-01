@@ -1,0 +1,92 @@
+# Systemd Service File for DD Scheduler Bot
+#
+# This file configures DD Scheduler Bot to run as a system service on Linux.
+#
+# Installation:
+# 1. Copy to systemd directory:
+#    sudo cp dd-scheduler.service.example /etc/systemd/system/dd-scheduler.service
+#
+# 2. Edit the file to set correct paths and user:
+#    sudo nano /etc/systemd/system/dd-scheduler.service
+#
+# 3. Reload systemd and enable service:
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable dd-scheduler
+#    sudo systemctl start dd-scheduler
+#
+# 4. Check status:
+#    sudo systemctl status dd-scheduler
+#
+# 5. View logs:
+#    sudo journalctl -u dd-scheduler -f
+
+[Unit]
+Description=DD Scheduler Bot - Production Scheduling System
+After=network.target
+
+[Service]
+# User to run as (create dedicated user for security)
+User=ddscheduler
+Group=ddscheduler
+
+# Working directory (change to your installation path)
+WorkingDirectory=/opt/dd-scheduler-bot
+
+# Environment file
+EnvironmentFile=/opt/dd-scheduler-bot/.env
+
+# Start command
+ExecStart=/opt/dd-scheduler-bot/venv/bin/python run_production.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dd-scheduler
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dd-scheduler-bot/outputs /opt/dd-scheduler-bot/Scheduler Bot Info
+
+[Install]
+WantedBy=multi-user.target
+
+# ============================================================
+# SETUP INSTRUCTIONS
+# ============================================================
+#
+# 1. Create a dedicated user:
+#    sudo useradd -r -s /bin/false ddscheduler
+#
+# 2. Set up the application directory:
+#    sudo mkdir -p /opt/dd-scheduler-bot
+#    sudo chown ddscheduler:ddscheduler /opt/dd-scheduler-bot
+#
+# 3. Copy application files:
+#    sudo cp -r /path/to/dd-scheduler-bot/* /opt/dd-scheduler-bot/
+#
+# 4. Create virtual environment:
+#    cd /opt/dd-scheduler-bot
+#    sudo -u ddscheduler python -m venv venv
+#    sudo -u ddscheduler venv/bin/pip install -r requirements.txt
+#
+# 5. Create .env file:
+#    sudo -u ddscheduler cp .env.example .env
+#    sudo nano /opt/dd-scheduler-bot/.env
+#    # Set SECRET_KEY, ADMIN_PASSWORD, etc.
+#
+# 6. Set permissions:
+#    sudo chown -R ddscheduler:ddscheduler /opt/dd-scheduler-bot
+#    sudo chmod 600 /opt/dd-scheduler-bot/.env
+#
+# 7. Install and start service:
+#    sudo cp deployment/dd-scheduler.service.example /etc/systemd/system/dd-scheduler.service
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable dd-scheduler
+#    sudo systemctl start dd-scheduler

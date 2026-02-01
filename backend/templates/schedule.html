@@ -1,0 +1,221 @@
+{% extends 'base.html' %}
+
+{% block title %}Schedule - DD Scheduler Bot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-table"></i> Schedule</h2>
+    <div>
+        {% if schedule.generated_at %}
+            <small class="text-muted me-3">Generated: {{ schedule.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+        {% endif %}
+        <button class="btn btn-outline-primary me-2" onclick="refreshSchedule()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+        <button class="btn btn-primary" onclick="generateSchedule()">
+            <i class="bi bi-play-circle"></i> Generate New
+        </button>
+    </div>
+</div>
+
+<!-- Stats Summary -->
+{% if schedule.stats %}
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0">{{ schedule.stats.total_orders or 0 }}</div>
+                <small class="text-muted">Total Orders</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0 text-success">{{ schedule.stats.on_time or 0 }}</div>
+                <small class="text-muted">On Time</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0 text-danger">{{ schedule.stats.late or 0 }}</div>
+                <small class="text-muted">Late</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0 text-warning">{{ schedule.stats.at_risk or 0 }}</div>
+                <small class="text-muted">At Risk</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0">{{ schedule.stats.avg_turnaround or '-' }}</div>
+                <small class="text-muted">Avg Turnaround</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card">
+            <div class="card-body text-center py-2">
+                <div class="h4 mb-0 text-danger">{{ schedule.stats.hot_list_count or 0 }}</div>
+                <small class="text-muted">Hot List</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Schedule Table -->
+<div class="card">
+    <div class="card-body">
+        {% if schedule.orders %}
+        <table id="scheduleTable" class="table table-striped table-hover" style="width:100%">
+            <thead>
+                <tr>
+                    <th>WO#</th>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Customer</th>
+                    <th>Core</th>
+                    <th>Rubber</th>
+                    <th>Priority</th>
+                    <th>BLAST Date</th>
+                    <th>Completion</th>
+                    <th>Promise Date</th>
+                    <th>Turnaround</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in schedule.orders %}
+                <tr>
+                    <td><strong>{{ order.wo_number }}</strong></td>
+                    <td>{{ order.part_number }}</td>
+                    <td>{{ order.description[:40] }}{% if order.description|length > 40 %}...{% endif %}</td>
+                    <td>{{ order.customer[:25] }}{% if order.customer|length > 25 %}...{% endif %}</td>
+                    <td>{{ order.assigned_core or '-' }}</td>
+                    <td>{{ order.rubber_type or '-' }}</td>
+                    <td>
+                        {% if order.priority == 'Hot-ASAP' %}
+                            <span class="badge priority-hot-asap">ASAP</span>
+                        {% elif order.priority == 'Hot-Dated' %}
+                            <span class="badge priority-hot-dated">DATED</span>
+                        {% elif order.priority == 'Rework' %}
+                            <span class="badge priority-rework">REWORK</span>
+                        {% elif order.priority == 'CAVO' %}
+                            <span class="badge bg-info">CAVO</span>
+                        {% else %}
+                            <span class="badge priority-normal">NORMAL</span>
+                        {% endif %}
+                    </td>
+                    <td data-order="{{ order.blast_start.timestamp() if order.blast_start else 0 }}">
+                        {{ order.blast_start.strftime('%m/%d/%y %H:%M') if order.blast_start else '-' }}
+                    </td>
+                    <td data-order="{{ order.completion_date.timestamp() if order.completion_date else 0 }}">
+                        {{ order.completion_date.strftime('%m/%d/%y %H:%M') if order.completion_date else '-' }}
+                    </td>
+                    <td data-order="{{ order.promise_date.timestamp() if order.promise_date else 0 }}">
+                        {{ order.promise_date.strftime('%m/%d/%y') if order.promise_date else '-' }}
+                    </td>
+                    <td>{{ order.turnaround_days if order.turnaround_days else '-' }}</td>
+                    <td>
+                        {% if order.on_time_status == 'On Time' %}
+                            <span class="badge bg-success">On Time</span>
+                        {% elif order.on_time_status == 'Late' %}
+                            <span class="badge bg-danger">Late</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">At Risk</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-calendar-x" style="font-size: 4rem; color: #dee2e6;"></i>
+            <h4 class="mt-3 text-muted">No Schedule Generated</h4>
+            <p class="text-muted">Upload your input files and click "Generate Schedule" to view the schedule.</p>
+            <button class="btn btn-primary" onclick="generateSchedule()">
+                <i class="bi bi-play-circle"></i> Generate Schedule
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        {% if schedule.orders %}
+        $('#scheduleTable').DataTable({
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+            order: [[7, 'asc']],  // Sort by BLAST date
+            dom: 'Bfrtip',
+            buttons: [
+                {
+                    extend: 'excel',
+                    text: '<i class="bi bi-file-earmark-excel"></i> Export Excel',
+                    className: 'btn btn-success btn-sm',
+                    exportOptions: {
+                        columns: ':visible'
+                    }
+                },
+                {
+                    extend: 'print',
+                    text: '<i class="bi bi-printer"></i> Print',
+                    className: 'btn btn-secondary btn-sm'
+                }
+            ],
+            columnDefs: [
+                { targets: [2], visible: false },  // Hide description by default
+            ],
+            initComplete: function() {
+                // Add column visibility toggle
+                var table = this.api();
+
+                // Add filter dropdowns for Priority and Status
+                this.api().columns([6, 11]).every(function() {
+                    var column = this;
+                    var header = $(column.header()).text();
+
+                    var select = $('<select class="form-select form-select-sm ms-2" style="width: auto; display: inline-block;"><option value="">All ' + header + '</option></select>')
+                        .appendTo($(column.header()))
+                        .on('change', function() {
+                            var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                            column.search(val ? '^' + val + '$' : '', true, false).draw();
+                        });
+
+                    column.data().unique().sort().each(function(d) {
+                        // Extract text from badge HTML
+                        var text = $(d).text() || d;
+                        select.append('<option value="' + text + '">' + text + '</option>');
+                    });
+                });
+            }
+        });
+        {% endif %}
+    });
+
+    function refreshSchedule() {
+        window.location.reload();
+    }
+</script>
+
+<!-- DataTables Buttons extension -->
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+{% endblock %}

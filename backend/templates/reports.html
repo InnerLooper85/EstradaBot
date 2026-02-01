@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+
+{% block title %}Reports - DD Scheduler Bot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-file-earmark-excel"></i> Reports</h2>
+    <button class="btn btn-primary" onclick="generateSchedule()">
+        <i class="bi bi-play-circle"></i> Generate New Reports
+    </button>
+</div>
+
+<!-- Report Type Cards -->
+<div class="row mb-4">
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-list-task text-primary"></i> Master Schedule</h5>
+                <p class="card-text text-muted small">Complete schedule with all orders, operation times, and status. Includes turnaround time and on-time status.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-lightning text-warning"></i> BLAST Schedule</h5>
+                <p class="card-text text-muted small">Shop floor printable schedule showing BLAST operation sequence. Sorted by scheduled BLAST time.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-thermometer-half text-danger"></i> Core Oven Schedule</h5>
+                <p class="card-text text-muted small">Core preheat loading schedule. Shows which cores need to be loaded into the oven and when.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-hourglass-split text-info"></i> Pending Core Report</h5>
+                <p class="card-text text-muted small">Orders waiting for core availability. Helps identify core shortages and bottlenecks.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-graph-up text-success"></i> Impact Analysis</h5>
+                <p class="card-text text-muted small">Comparison of baseline vs hot list schedule. Shows which orders were delayed due to hot list prioritization.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Available Reports Table -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-folder2-open"></i> Available Reports</span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="window.location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+    <div class="card-body">
+        {% if reports %}
+        <table class="table table-hover" id="reportsTable">
+            <thead>
+                <tr>
+                    <th>Report Type</th>
+                    <th>Filename</th>
+                    <th>Generated</th>
+                    <th>Size</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for report in reports %}
+                <tr>
+                    <td>
+                        {% if report.type == 'Master Schedule' %}
+                            <i class="bi bi-list-task text-primary"></i>
+                        {% elif report.type == 'BLAST Schedule' %}
+                            <i class="bi bi-lightning text-warning"></i>
+                        {% elif report.type == 'Core Oven Schedule' %}
+                            <i class="bi bi-thermometer-half text-danger"></i>
+                        {% elif report.type == 'Pending Core Report' %}
+                            <i class="bi bi-hourglass-split text-info"></i>
+                        {% elif report.type == 'Impact Analysis' %}
+                            <i class="bi bi-graph-up text-success"></i>
+                        {% else %}
+                            <i class="bi bi-file-earmark-excel text-secondary"></i>
+                        {% endif %}
+                        {{ report.type }}
+                    </td>
+                    <td><code>{{ report.filename }}</code></td>
+                    <td>{{ report.modified.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ "%.1f"|format(report.size / 1024) }} KB</td>
+                    <td>
+                        <a href="/api/download/{{ report.filename }}" class="btn btn-sm btn-success">
+                            <i class="bi bi-download"></i> Download
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-inbox" style="font-size: 4rem; color: #dee2e6;"></i>
+            <h4 class="mt-3 text-muted">No Reports Generated</h4>
+            <p class="text-muted">Generate a schedule to create reports.</p>
+            <button class="btn btn-primary" onclick="generateSchedule()">
+                <i class="bi bi-play-circle"></i> Generate Schedule
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Quick Download Section -->
+{% if reports %}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-download"></i> Quick Download Latest
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% set report_types = ['Master Schedule', 'BLAST Schedule', 'Core Oven Schedule', 'Pending Core Report', 'Impact Analysis'] %}
+            {% for type in report_types %}
+                {% set latest = reports|selectattr('type', 'equalto', type)|first %}
+                <div class="col-md-4 mb-2">
+                    {% if latest %}
+                        <a href="/api/download/{{ latest.filename }}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-download"></i> {{ type }}
+                        </a>
+                    {% else %}
+                        <button class="btn btn-outline-secondary w-100" disabled>
+                            <i class="bi bi-x-circle"></i> {{ type }} (N/A)
+                        </button>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        {% if reports %}
+        $('#reportsTable').DataTable({
+            pageLength: 10,
+            order: [[2, 'desc']],  // Sort by date descending
+            columnDefs: [
+                { orderable: false, targets: [4] }  // Disable sorting on Actions column
+            ]
+        });
+        {% endif %}
+    });
+</script>
+{% endblock %}

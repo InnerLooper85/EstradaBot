@@ -1,0 +1,311 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload Files - DD Scheduler Bot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-cloud-upload"></i> Upload Files</h2>
+</div>
+
+<div class="row">
+    <!-- Upload Zone -->
+    <div class="col-md-8 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-upload"></i> Upload Input Files
+            </div>
+            <div class="card-body">
+                <div class="file-drop-zone" id="dropZone">
+                    <i class="bi bi-cloud-arrow-up"></i>
+                    <h5 class="mt-3">Drag & Drop Files Here</h5>
+                    <p class="text-muted">or click to browse</p>
+                    <input type="file" id="fileInput" class="d-none" accept=".xlsx,.xls" multiple>
+                </div>
+
+                <div id="uploadProgress" class="mt-3 d-none">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span id="uploadFileName">Uploading...</span>
+                        <span id="uploadPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="uploadProgressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div id="uploadResults" class="mt-3"></div>
+            </div>
+        </div>
+
+        <!-- File Type Help -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> Supported File Types
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>File Type</th>
+                            <th>Filename Pattern</th>
+                            <th>Required</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-success"></i> Sales Order</td>
+                            <td><code>Open Sales Order*.xlsx</code></td>
+                            <td><span class="badge bg-danger">Required</span></td>
+                            <td>Open work orders with BLAST dates, customers, promise dates</td>
+                        </tr>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-success"></i> Shop Dispatch</td>
+                            <td><code>Shop Dispatch*.xlsx</code></td>
+                            <td><span class="badge bg-secondary">Optional</span></td>
+                            <td>Work center operations and routing data</td>
+                        </tr>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-success"></i> Pegging Report</td>
+                            <td><code>Pegging Report*.xlsx</code></td>
+                            <td><span class="badge bg-secondary">Optional</span></td>
+                            <td>Actual start dates and WO creation dates</td>
+                        </tr>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-warning"></i> Hot List</td>
+                            <td><code>HOT LIST*.xlsx</code></td>
+                            <td><span class="badge bg-secondary">Optional</span></td>
+                            <td>Priority orders (ASAP or dated)</td>
+                        </tr>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-info"></i> Core Mapping</td>
+                            <td><code>Core Mapping.xlsx</code></td>
+                            <td><span class="badge bg-danger">Required</span></td>
+                            <td>Core definitions and process times</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Files -->
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-folder-check"></i> Current Files
+            </div>
+            <div class="card-body">
+                <div class="list-group list-group-flush">
+                    <!-- Sales Order -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>Sales Order</strong><br>
+                            {% if files.sales_order %}
+                                <small class="text-success">{{ files.sales_order.name }}</small><br>
+                                <small class="text-muted">{{ files.sales_order.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-danger">Not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.sales_order %}
+                            <span class="badge bg-success"><i class="bi bi-check"></i></span>
+                        {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x"></i></span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Shop Dispatch -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>Shop Dispatch</strong><br>
+                            {% if files.shop_dispatch %}
+                                <small class="text-success">{{ files.shop_dispatch.name }}</small><br>
+                                <small class="text-muted">{{ files.shop_dispatch.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-muted">Optional - not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.shop_dispatch %}
+                            <span class="badge bg-success"><i class="bi bi-check"></i></span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Pegging Report -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>Pegging Report</strong><br>
+                            {% if files.pegging_report %}
+                                <small class="text-success">{{ files.pegging_report.name }}</small><br>
+                                <small class="text-muted">{{ files.pegging_report.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-muted">Optional - not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.pegging_report %}
+                            <span class="badge bg-success"><i class="bi bi-check"></i></span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Hot List -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>Hot List</strong><br>
+                            {% if files.hot_list %}
+                                <small class="text-warning">{{ files.hot_list.name }}</small><br>
+                                <small class="text-muted">{{ files.hot_list.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-muted">Optional - not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.hot_list %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation"></i></span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Core Mapping -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>Core Mapping</strong><br>
+                            {% if files.core_mapping %}
+                                <small class="text-success">{{ files.core_mapping.name }}</small><br>
+                                <small class="text-muted">{{ files.core_mapping.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-danger">Required - not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.core_mapping %}
+                            <span class="badge bg-success"><i class="bi bi-check"></i></span>
+                        {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x"></i></span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="mt-3 text-center">
+                    <button class="btn btn-primary" onclick="generateSchedule()"
+                            {% if not files.sales_order %}disabled{% endif %}>
+                        <i class="bi bi-play-circle"></i> Generate Schedule
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadProgress = document.getElementById('uploadProgress');
+    const uploadResults = document.getElementById('uploadResults');
+
+    // Click to browse
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    // Drag and drop events
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    // File input change
+    fileInput.addEventListener('change', () => {
+        handleFiles(fileInput.files);
+    });
+
+    // Handle file uploads
+    function handleFiles(files) {
+        uploadResults.innerHTML = '';
+
+        for (const file of files) {
+            uploadFile(file);
+        }
+    }
+
+    // Upload a single file
+    function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('type', detectFileType(file.name));
+
+        // Show progress
+        uploadProgress.classList.remove('d-none');
+        document.getElementById('uploadFileName').textContent = file.name;
+        document.getElementById('uploadPercent').textContent = '0%';
+        document.getElementById('uploadProgressBar').style.width = '0%';
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                document.getElementById('uploadPercent').textContent = percent + '%';
+                document.getElementById('uploadProgressBar').style.width = percent + '%';
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            uploadProgress.classList.add('d-none');
+
+            if (xhr.status === 200) {
+                const result = JSON.parse(xhr.responseText);
+                showUploadResult(file.name, true, 'Uploaded successfully');
+                // Refresh the page to update file list
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                const result = JSON.parse(xhr.responseText);
+                showUploadResult(file.name, false, result.error || 'Upload failed');
+            }
+        });
+
+        xhr.addEventListener('error', () => {
+            uploadProgress.classList.add('d-none');
+            showUploadResult(file.name, false, 'Network error');
+        });
+
+        xhr.open('POST', '/api/upload');
+        xhr.send(formData);
+    }
+
+    // Detect file type from filename
+    function detectFileType(filename) {
+        const lower = filename.toLowerCase();
+        if (lower.includes('open sales order')) return 'sales_order';
+        if (lower.includes('shop dispatch')) return 'shop_dispatch';
+        if (lower.includes('pegging')) return 'pegging_report';
+        if (lower.includes('hot list')) return 'hot_list';
+        if (lower.includes('core mapping')) return 'core_mapping';
+        return 'unknown';
+    }
+
+    // Show upload result
+    function showUploadResult(filename, success, message) {
+        const alertClass = success ? 'alert-success' : 'alert-danger';
+        const icon = success ? 'check-circle' : 'x-circle';
+
+        uploadResults.innerHTML += `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                <i class="bi bi-${icon}"></i> <strong>${filename}</strong> - ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+    }
+</script>
+{% endblock %}
