@@ -1,5 +1,5 @@
 @echo off
-REM DD Scheduler Bot - Windows Production Launcher
+REM EstradaBot - Windows Production Launcher
 REM
 REM This script starts the production server on Windows.
 REM For running as a Windows Service, consider using NSSM (Non-Sucking Service Manager).
@@ -11,7 +11,7 @@ REM   2. Run this script: run_windows.bat
 cd /d "%~dp0.."
 
 echo ============================================================
-echo DD Scheduler Bot - Starting Production Server
+echo EstradaBot - Starting Production Server
 echo ============================================================
 
 REM Check if .env exists

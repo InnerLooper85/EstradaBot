@@ -1,5 +1,5 @@
 """
-DD Scheduler Bot - Flask Web Application
+EstradaBot - Flask Web Application
 With authentication and production deployment support
 """
 
@@ -22,7 +22,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import DataLoader
-from algorithms.des_scheduler import DESScheduler, WorkScheduleConfig
+from algorithms.des_scheduler import DESScheduler
 from exporters.excel_exporter import (
     export_master_schedule,
     export_blast_schedule,
@@ -347,42 +347,28 @@ def generate_schedule():
         if not loader.orders:
             return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
 
-        # Get schedule configuration from request (or use defaults)
-        config_data = request.get_json() or {}
-
-        # Create work schedule config
-        work_config = WorkScheduleConfig(
-            days_per_week=config_data.get('days_per_week', 4),
-            hours_per_shift=config_data.get('hours_per_shift', 10),
-            num_shifts=config_data.get('num_shifts', 2),
-            shift1_start=config_data.get('shift1_start', 5),
-            shift2_start=config_data.get('shift2_start', 17)
-        )
-
-        # Create scheduler and run
+        # Create scheduler
         scheduler = DESScheduler(
             orders=loader.orders,
             core_mapping=loader.core_mapping,
-            core_inventory=loader.core_inventory,
-            process_map=loader.process_map,
-            work_config=work_config
+            core_inventory=loader.core_inventory
         )
 
         # Run baseline schedule (without hot list)
-        baseline_orders = scheduler.schedule()
+        baseline_orders = scheduler.schedule_orders()
 
         # If hot list exists, run with hot list
         scheduled_orders = baseline_orders
-        if loader.hot_list:
+        if loader.hot_list_entries:
+            # Create new scheduler for hot list run
             scheduler_with_hot = DESScheduler(
                 orders=loader.orders,
                 core_mapping=loader.core_mapping,
-                core_inventory=loader.core_inventory,
-                process_map=loader.process_map,
-                work_config=work_config,
-                hot_list=loader.hot_list
+                core_inventory=loader.core_inventory
             )
-            scheduled_orders = scheduler_with_hot.schedule()
+            scheduled_orders = scheduler_with_hot.schedule_orders(
+                hot_list_entries=loader.hot_list_entries
+            )
 
         # Generate timestamp for reports
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -408,17 +394,17 @@ def generate_schedule():
         reports['pending'] = pending_path
 
         # Impact analysis if hot list was used
-        if loader.hot_list:
+        if loader.hot_list_entries:
             impact_path = os.path.join(output_folder, f'Impact_Analysis_{timestamp}.xlsx')
-            generate_impact_analysis(baseline_orders, scheduled_orders, loader.hot_list, impact_path)
+            generate_impact_analysis(baseline_orders, scheduled_orders, loader.hot_list_entries, impact_path)
             reports['impact'] = impact_path
 
-        # Calculate stats
-        on_time = sum(1 for o in scheduled_orders if o.get('on_time_status') == 'On Time')
-        late = sum(1 for o in scheduled_orders if o.get('on_time_status') == 'Late')
-        at_risk = sum(1 for o in scheduled_orders if o.get('on_time_status') == 'At Risk')
+        # Calculate stats (ScheduledOrder is a dataclass, use attribute access)
+        on_time_count = sum(1 for o in scheduled_orders if getattr(o, 'on_time', False))
+        late_count = sum(1 for o in scheduled_orders if not getattr(o, 'on_time', True))
+        at_risk_count = 0  # Not tracked separately in current model
 
-        turnaround_times = [o.get('turnaround_days', 0) for o in scheduled_orders if o.get('turnaround_days')]
+        turnaround_times = [o.turnaround_days for o in scheduled_orders if o.turnaround_days]
         avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
 
         # Update global state
@@ -429,11 +415,11 @@ def generate_schedule():
             'reports': reports,
             'stats': {
                 'total_orders': len(scheduled_orders),
-                'on_time': on_time,
-                'late': late,
-                'at_risk': at_risk,
+                'on_time': on_time_count,
+                'late': late_count,
+                'at_risk': at_risk_count,
                 'avg_turnaround': round(avg_turnaround, 1),
-                'hot_list_count': len(loader.hot_list) if loader.hot_list else 0
+                'hot_list_count': len(loader.hot_list_entries) if loader.hot_list_entries else 0
             }
         }
 
@@ -457,23 +443,23 @@ def get_schedule():
     if not current_schedule['orders']:
         return jsonify({'orders': [], 'stats': {}})
 
-    # Convert orders to JSON-serializable format
+    # Convert ScheduledOrder dataclass objects to JSON-serializable format
     orders_data = []
     for order in current_schedule['orders']:
         order_dict = {
-            'wo_number': order.get('wo_number', ''),
-            'part_number': order.get('part_number', ''),
-            'description': order.get('description', ''),
-            'customer': order.get('customer', ''),
-            'core': order.get('assigned_core', ''),
-            'rubber_type': order.get('rubber_type', ''),
-            'priority': order.get('priority', 'Normal'),
-            'blast_date': order.get('blast_start', '').isoformat() if order.get('blast_start') else '',
-            'completion_date': order.get('completion_date', '').isoformat() if order.get('completion_date') else '',
-            'promise_date': order.get('promise_date', '').isoformat() if order.get('promise_date') else '',
-            'turnaround_days': order.get('turnaround_days', ''),
-            'on_time_status': order.get('on_time_status', ''),
-            'is_rework': order.get('is_rework', False)
+            'wo_number': order.wo_number or '',
+            'part_number': order.part_number or '',
+            'description': order.description or '',
+            'customer': order.customer or '',
+            'core': order.assigned_core or '',
+            'rubber_type': order.rubber_type or '',
+            'priority': getattr(order, 'priority', 'Normal'),
+            'blast_date': order.blast_date.isoformat() if order.blast_date else '',
+            'completion_date': order.completion_date.isoformat() if order.completion_date else '',
+            'promise_date': order.promise_date.isoformat() if order.promise_date else '',
+            'turnaround_days': order.turnaround_days or '',
+            'on_time_status': 'On Time' if order.on_time else 'Late',
+            'is_rework': order.is_reline  # Using is_reline as proxy for rework
         }
         orders_data.append(order_dict)
 
@@ -551,7 +537,7 @@ def run_development():
     port = int(os.environ.get('PORT', 5000))
 
     print("=" * 60)
-    print("DD Scheduler Bot - Web Interface (Development)")
+    print("EstradaBot - Web Interface (Development)")
     print("=" * 60)
     print(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
     print(f"Output folder: {app.config['OUTPUT_FOLDER']}")
@@ -572,7 +558,7 @@ def run_production():
     port = int(os.environ.get('PORT', 5000))
 
     print("=" * 60)
-    print("DD Scheduler Bot - Web Interface (Production)")
+    print("EstradaBot - Web Interface (Production)")
     print("=" * 60)
     print(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
     print(f"Output folder: {app.config['OUTPUT_FOLDER']}")

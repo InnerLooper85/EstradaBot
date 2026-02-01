@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-DD Scheduler Bot - Production Server Launcher
+EstradaBot - Production Server Launcher
 
 This script starts the production server using Waitress (Windows-compatible).
 For Linux/Unix servers, you can also use Gunicorn.

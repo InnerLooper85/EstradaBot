@@ -1,6 +1,6 @@
-# Systemd Service File for DD Scheduler Bot
+# Systemd Service File for EstradaBot
 #
-# This file configures DD Scheduler Bot to run as a system service on Linux.
+# This file configures EstradaBot to run as a system service on Linux.
 #
 # Installation:
 # 1. Copy to systemd directory:
@@ -21,7 +21,7 @@
 #    sudo journalctl -u dd-scheduler -f
 
 [Unit]
-Description=DD Scheduler Bot - Production Scheduling System
+Description=EstradaBot - Production Scheduling System
 After=network.target
 
 [Service]

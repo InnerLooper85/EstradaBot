@@ -97,8 +97,9 @@
                                 {% endif %}
                             </td>
                         </tr>
+                        {% if current_user.role == 'admin' %}
                         <tr>
-                            <td><i class="bi bi-file-earmark-excel text-info"></i> Core Mapping</td>
+                            <td><i class="bi bi-file-earmark-excel text-info"></i> Core Mapping <span class="badge bg-info">Admin</span></td>
                             <td class="text-end">
                                 {% if files.core_mapping %}
                                     <span class="text-success"><i class="bi bi-check-circle"></i> {{ files.core_mapping.name[:30] }}...</span>
@@ -107,6 +108,7 @@
                                 {% endif %}
                             </td>
                         </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
