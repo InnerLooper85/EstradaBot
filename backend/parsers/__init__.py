@@ -7,6 +7,7 @@ from .core_mapping_parser import parse_core_mapping, parse_core_inventory, valid
 from .process_map_parser import parse_process_map, get_routing_for_product
 from .order_filters import classify_product_type, should_exclude_order, get_exclusion_summary
 from .shop_dispatch_parser import parse_shop_dispatch
+from .pegging_parser import parse_pegging_actual_start_dates
 
 __all__ = [
     'parse_open_sales_order',
@@ -19,5 +20,6 @@ __all__ = [
     'classify_product_type',
     'should_exclude_order',
     'get_exclusion_summary',
-    'parse_shop_dispatch'
+    'parse_shop_dispatch',
+    'parse_pegging_actual_start_dates'
 ]

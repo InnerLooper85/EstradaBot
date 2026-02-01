@@ -458,6 +458,7 @@ class PartState:
     promise_date: Optional[datetime] = None
     creation_date: Optional[datetime] = None
     basic_finish_date: Optional[datetime] = None  # From SAP - used for On-Time calculation
+    actual_start_date: Optional[datetime] = None  # From Pegging Report
 
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
@@ -842,7 +843,8 @@ class DESScheduler:
                         disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
                         promise_date=order.get('promise_date'),
                         creation_date=order.get('creation_date') or order.get('created_on'),
-                        basic_finish_date=order.get('basic_finish_date')
+                        basic_finish_date=order.get('basic_finish_date'),
+                        actual_start_date=order.get('actual_start_date')
                     )
 
                     self.parts[part_id] = part_state
@@ -1119,6 +1121,7 @@ class DESScheduler:
                 assigned_core=f"{part.core_number}-{part.core_suffix}" if part.core_number else None,
                 rubber_type=part.rubber_type,
                 operations=operations,
+                actual_start_date=part.actual_start_date,
                 blast_date=part.blast_time,
                 completion_date=part.completion_time,
                 turnaround_days=turnaround_days,

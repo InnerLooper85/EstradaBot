@@ -217,6 +217,7 @@ class ScheduledOrder:
     assigned_core: str = None  # e.g., "427-A"
     rubber_type: str = None
     operations: List[ScheduledOperation] = field(default_factory=list)
+    actual_start_date: datetime = None  # From Pegging Report
     blast_date: datetime = None
     completion_date: datetime = None
     turnaround_days: float = None

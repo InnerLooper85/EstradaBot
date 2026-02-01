@@ -35,6 +35,7 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
             'Type': 'Reline' if order.is_reline else 'New',
             'Core': order.assigned_core,
             'Rubber Type': order.rubber_type,
+            'Actual Start Date': getattr(order, 'actual_start_date', None),
             'BLAST Date': order.blast_date,
             'Completion Date': order.completion_date,
             'Turnaround (days)': order.turnaround_days,
