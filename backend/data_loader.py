@@ -4,8 +4,9 @@ Loads and validates all input data files.
 """
 
 import os
+import glob
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 
 from parsers import (
     parse_open_sales_order,
@@ -13,7 +14,10 @@ from parsers import (
     parse_core_inventory,
     parse_process_map,
     validate_orders,
-    validate_core_mapping
+    validate_core_mapping,
+    should_exclude_order,
+    get_exclusion_summary,
+    parse_shop_dispatch
 )
 
 
@@ -23,10 +27,88 @@ class DataLoader:
     def __init__(self, data_dir: str = "../Scheduler Bot Info"):
         self.data_dir = Path(data_dir)
         self.orders = []
+        self.shop_dispatch_orders = []
+        self.excluded_orders = []
         self.core_mapping = {}
         self.core_inventory = {}
         self.operations = {}
         self.validation_results = {}
+
+    def _find_most_recent_file(self, pattern: str) -> Optional[Path]:
+        """
+        Find the most recently modified file matching a glob pattern.
+
+        Args:
+            pattern: Glob pattern to match (e.g., "Open Sales Order*.xlsx")
+
+        Returns:
+            Path to most recent matching file, or None if no matches
+        """
+        search_path = self.data_dir / pattern
+        matches = list(glob.glob(str(search_path)))
+
+        if not matches:
+            return None
+
+        # Sort by modification time, newest first
+        matches.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+        return Path(matches[0])
+
+    def _filter_orders(self, orders: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Tuple]]:
+        """
+        Apply exclusion filters to orders.
+
+        Args:
+            orders: List of order dictionaries
+
+        Returns:
+            Tuple of (filtered orders, excluded orders with reasons)
+        """
+        filtered = []
+        excluded = []
+
+        for order in orders:
+            exclusion_reason = should_exclude_order(
+                order.get('part_number'),
+                order.get('description'),
+                order.get('supply_source')
+            )
+
+            if exclusion_reason:
+                excluded.append((order, exclusion_reason))
+            else:
+                filtered.append(order)
+
+        return filtered, excluded
+
+    def load_shop_dispatch(self, filepath: Optional[str] = None) -> bool:
+        """
+        Load Shop Dispatch data.
+
+        Args:
+            filepath: Optional explicit filepath. If None, finds most recent file.
+
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if filepath:
+            dispatch_file = Path(filepath)
+        else:
+            dispatch_file = self._find_most_recent_file("Shop Dispatch*.XLSX")
+            if not dispatch_file:
+                # Also try lowercase extension
+                dispatch_file = self._find_most_recent_file("Shop Dispatch*.xlsx")
+
+        if not dispatch_file or not dispatch_file.exists():
+            print("  No Shop Dispatch file found (optional)")
+            return False
+
+        print(f"  Loading: {dispatch_file.name}")
+        self.shop_dispatch_orders, dispatch_excluded = parse_shop_dispatch(str(dispatch_file))
+        self.excluded_orders.extend(dispatch_excluded)
+
+        print(f"  [OK] Loaded {len(self.shop_dispatch_orders)} orders from Shop Dispatch")
+        return True
 
     def load_all(self) -> bool:
         """
@@ -40,10 +122,24 @@ class DataLoader:
         print("=" * 70)
 
         try:
-            # 1. Load Sales Orders
-            print("\n[1/4] Loading Open Sales Order...")
-            sales_order_file = self.data_dir / "Open_Sales_Order_Example.xlsx"
-            self.orders = parse_open_sales_order(str(sales_order_file))
+            # 1. Load Sales Orders (find most recent file)
+            print("\n[1/5] Loading Open Sales Order...")
+            sales_order_file = self._find_most_recent_file("Open Sales Order*.xlsx")
+            if not sales_order_file:
+                print("[ERROR] No Open Sales Order file found!")
+                return False
+
+            print(f"  Loading: {sales_order_file.name}")
+            raw_orders = parse_open_sales_order(str(sales_order_file), sheet_name='RawData')
+
+            # Apply filters to sales orders
+            print("\n[2/5] Filtering Sales Orders...")
+            self.orders, sales_excluded = self._filter_orders(raw_orders)
+            self.excluded_orders.extend(sales_excluded)
+
+            print(f"  Raw orders: {len(raw_orders)}")
+            print(f"  After filtering: {len(self.orders)}")
+            print(f"  Excluded: {len(sales_excluded)}")
 
             order_validation = validate_orders(self.orders)
             self.validation_results['orders'] = order_validation
@@ -52,10 +148,27 @@ class DataLoader:
                 print("[ERROR] CRITICAL: Sales order validation failed")
                 return False
 
-            print(f"[OK] Loaded {len(self.orders)} orders")
+            # 3. Load Shop Dispatch (optional)
+            print("\n[3/5] Loading Shop Dispatch...")
+            self.load_shop_dispatch()
 
-            # 2. Load Core Mapping
-            print("\n[2/4] Loading Core Mapping...")
+            # Merge Shop Dispatch orders (avoid duplicates by WO#)
+            if self.shop_dispatch_orders:
+                existing_wo_numbers = {o['wo_number'] for o in self.orders}
+                new_from_dispatch = 0
+
+                for dispatch_order in self.shop_dispatch_orders:
+                    if dispatch_order['wo_number'] not in existing_wo_numbers:
+                        self.orders.append(dispatch_order)
+                        existing_wo_numbers.add(dispatch_order['wo_number'])
+                        new_from_dispatch += 1
+
+                print(f"  Added {new_from_dispatch} orders from Shop Dispatch (not in Sales Orders)")
+
+            print(f"\n[OK] Total orders after merge: {len(self.orders)}")
+
+            # 4. Load Core Mapping
+            print("\n[4/5] Loading Core Mapping...")
             core_mapping_file = self.data_dir / "Core Mapping.xlsx"
             self.core_mapping = parse_core_mapping(str(core_mapping_file))
             self.core_inventory = parse_core_inventory(str(core_mapping_file))
@@ -66,16 +179,19 @@ class DataLoader:
             print(f"[OK] Loaded {len(self.core_mapping)} part mappings")
             print(f"[OK] Loaded {len(self.core_inventory)} unique cores")
 
-            # 3. Load Process Map
-            print("\n[3/4] Loading Process Map...")
+            # 5. Load Process Map
+            print("\n[5/5] Loading Process Map...")
             process_map_file = self.data_dir / "Stators Process VSM.xlsx"
             self.operations = parse_process_map(str(process_map_file))
 
             print(f"[OK] Loaded {len(self.operations)} operations")
 
-            # 4. Cross-validate
-            print("\n[4/4] Cross-validating data...")
+            # Cross-validate
+            print("\nCross-validating data...")
             self._cross_validate()
+
+            # Print exclusion summary
+            self._print_exclusion_summary()
 
             return True
 
@@ -106,14 +222,33 @@ class DataLoader:
         else:
             print("\n[OK] All order part numbers found in core mapping")
 
+    def _print_exclusion_summary(self):
+        """Print summary of excluded orders."""
+        if not self.excluded_orders:
+            return
+
+        print("\n" + "-" * 50)
+        print("EXCLUSION SUMMARY")
+        print("-" * 50)
+
+        summary = get_exclusion_summary(self.excluded_orders)
+        total_excluded = len(self.excluded_orders)
+
+        print(f"Total excluded: {total_excluded}")
+        for reason, count in sorted(summary.items(), key=lambda x: -x[1]):
+            print(f"  - {reason}: {count}")
+
     def get_summary(self) -> Dict[str, Any]:
         """Get summary of loaded data."""
 
-        # Analyze orders
-        new_count = sum(1 for o in self.orders
-                       if o['part_number'] and o['part_number'][0].isdigit())
-        reline_count = sum(1 for o in self.orders
-                          if o['part_number'] and o['part_number'].startswith('XN'))
+        # Analyze orders by product type
+        stator_count = sum(1 for o in self.orders if o.get('product_type') == 'Stator')
+        reline_count = sum(1 for o in self.orders if o.get('product_type') == 'Reline')
+        other_count = len(self.orders) - stator_count - reline_count
+
+        # Analyze orders by source
+        sales_order_count = sum(1 for o in self.orders if o.get('source') == 'Sales Order')
+        shop_dispatch_count = sum(1 for o in self.orders if o.get('source') == 'Shop Dispatch')
 
         # Analyze cores
         total_cores = sum(len(cores) for cores in self.core_inventory.values())
@@ -126,8 +261,12 @@ class DataLoader:
         return {
             'orders': {
                 'total': len(self.orders),
-                'new': new_count,
+                'stator': stator_count,
                 'reline': reline_count,
+                'other': other_count,
+                'from_sales_order': sales_order_count,
+                'from_shop_dispatch': shop_dispatch_count,
+                'excluded': len(self.excluded_orders),
                 'reline_percentage': (reline_count / len(self.orders) * 100) if self.orders else 0
             },
             'parts': {
@@ -155,8 +294,12 @@ class DataLoader:
 
         print(f"\n[ORDERS] ORDERS:")
         print(f"   Total: {summary['orders']['total']}")
-        print(f"   New stators: {summary['orders']['new']}")
-        print(f"   Reline stators: {summary['orders']['reline']} ({summary['orders']['reline_percentage']:.1f}%)")
+        print(f"   Stators: {summary['orders']['stator']}")
+        print(f"   Relines: {summary['orders']['reline']} ({summary['orders']['reline_percentage']:.1f}%)")
+        print(f"   Other/Unknown: {summary['orders']['other']}")
+        print(f"   From Sales Order: {summary['orders']['from_sales_order']}")
+        print(f"   From Shop Dispatch: {summary['orders']['from_shop_dispatch']}")
+        print(f"   Excluded: {summary['orders']['excluded']}")
 
         print(f"\n[PARTS] PARTS & CORES:")
         print(f"   Parts mapped: {summary['parts']['total_mapped']}")

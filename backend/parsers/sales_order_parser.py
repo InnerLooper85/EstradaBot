@@ -5,8 +5,10 @@ Parses the Open Sales Order Excel file from SAP.
 
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import re
+
+from .order_filters import classify_product_type, should_exclude_order
 
 
 def extract_part_number_from_description(description: str) -> Optional[str]:
@@ -60,11 +62,17 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                 else:
                     part_number = str(part_number)
 
+                # Get description and supply source
+                description = row.get('Material Description')
+                supply_source = row.get('Supply Source') if pd.notna(row.get('Supply Source')) else None
+
                 # Create order dictionary using actual column names from SAP export
                 order = {
                     'wo_number': str(row['Work Order']) if pd.notna(row.get('Work Order')) else None,
                     'part_number': part_number,
-                    'description': row.get('Material Description'),
+                    'description': description,
+                    'supply_source': supply_source,
+                    'product_type': classify_product_type(part_number, description),
                     'customer': row.get('Customer Name'),
                     'customer_number': row.get('Customer Number'),
                     'core_number': row.get('Core (Work Center)'),
@@ -72,6 +80,7 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                     'quantity': row.get('Ordered Quantity', 1),
                     'work_order_status': row.get('Work Order Status'),
                     'current_operation': row.get('Current Operation Description'),
+                    'source': 'Sales Order'
                 }
 
                 # Parse dates if they exist
