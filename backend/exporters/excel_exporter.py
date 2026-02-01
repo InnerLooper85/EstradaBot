@@ -36,7 +36,8 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
             'Core': order.assigned_core,
             'Rubber Type': order.rubber_type,
             'Actual Start Date': getattr(order, 'actual_start_date', None),
-            'BLAST Date': order.blast_date,
+            'WO Creation Date': order.creation_date,
+            'Blast Date': order.blast_date,
             'Completion Date': order.completion_date,
             'Turnaround (days)': order.turnaround_days,
             'Basic Finish Date': getattr(order, 'basic_finish_date', None),
@@ -87,8 +88,8 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Part Number': order.part_number,
             'Description': str(order.description)[:50] if order.description else '',
             'Customer': order.customer[:30] if order.customer else '',
-            'BLAST Date': order.blast_date.strftime('%m/%d/%Y') if order.blast_date else '',
-            'BLAST Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
+            'Blast Date': order.blast_date.strftime('%m/%d/%Y') if order.blast_date else '',
+            'Blast Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
             'Core Required': order.assigned_core,
             'Planned Desma': getattr(order, 'planned_desma', '') or ''
         })

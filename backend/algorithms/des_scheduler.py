@@ -1095,11 +1095,22 @@ class DESScheduler:
                 )
                 operations.append(sched_op)
 
-            # Calculate turnaround
+            # Calculate turnaround based on order type
+            # - New Stators: Completion Date - Actual Start Date (or WO Creation Date if no actual start)
+            # - Relines: Completion Date - WO Creation Date
             turnaround_days = None
-            if part.creation_date and part.completion_time:
+            if part.completion_time:
                 try:
-                    turnaround_days = (part.completion_time - part.creation_date).days
+                    if part.is_reline:
+                        # Relines: use WO Creation Date
+                        if part.creation_date:
+                            turnaround_days = (part.completion_time - part.creation_date).days
+                    else:
+                        # New Stators: prefer Actual Start Date, fall back to WO Creation Date
+                        if part.actual_start_date:
+                            turnaround_days = (part.completion_time - part.actual_start_date).days
+                        elif part.creation_date:
+                            turnaround_days = (part.completion_time - part.creation_date).days
                 except:
                     pass
 
