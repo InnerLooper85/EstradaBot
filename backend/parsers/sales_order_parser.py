@@ -99,6 +99,8 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                     order['scheduled_start'] = pd.to_datetime(row['Scheduled start'])
                 if pd.notna(row.get('Requested deliv.date')):
                     order['requested_delivery_date'] = pd.to_datetime(row['Requested deliv.date'])
+                if pd.notna(row.get('Basic finish date')):
+                    order['basic_finish_date'] = pd.to_datetime(row['Basic finish date'])
 
                 # Skip orders without essential data
                 if not order['wo_number'] or not order['part_number']:

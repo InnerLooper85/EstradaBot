@@ -38,9 +38,9 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
             'BLAST Date': order.blast_date,
             'Completion Date': order.completion_date,
             'Turnaround (days)': order.turnaround_days,
+            'Basic Finish Date': getattr(order, 'basic_finish_date', None),
             'Promise Date': order.promise_date,
-            'On-Time': 'Yes' if order.on_time else 'No',
-            'Operations': len(order.operations)
+            'On-Time': 'Yes' if order.on_time else 'No'
         })
 
     df = pd.DataFrame(data)
@@ -86,9 +86,10 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Part Number': order.part_number,
             'Description': str(order.description)[:50] if order.description else '',
             'Customer': order.customer[:30] if order.customer else '',
-            'BLAST Date': order.blast_date.strftime('%Y-%m-%d') if order.blast_date else '',
+            'BLAST Date': order.blast_date.strftime('%m/%d/%Y') if order.blast_date else '',
             'BLAST Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
-            'Core Required': order.assigned_core
+            'Core Required': order.assigned_core,
+            'Planned Desma': getattr(order, 'planned_desma', '') or ''
         })
 
     df = pd.DataFrame(data)
@@ -280,7 +281,7 @@ def export_all_reports(scheduler, output_dir: str = None) -> Dict[str, str]:
 
 
 if __name__ == "__main__":
-    # Test export with actual scheduler
+    # Test export with DES scheduler
     import sys
     from pathlib import Path
 
@@ -288,9 +289,9 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     from data_loader import DataLoader
-    from algorithms.scheduler import ProductionScheduler, WorkSchedule
+    from algorithms.des_scheduler import DESScheduler
 
-    print("Testing Excel Export")
+    print("Testing Excel Export with DES Scheduler")
     print("=" * 60)
 
     # Load data
@@ -299,23 +300,20 @@ if __name__ == "__main__":
         print("Failed to load data")
         sys.exit(1)
 
-    # Create and run scheduler
-    work_schedule = WorkSchedule(
-        days_per_week=5,
-        shift_length=10,
-        num_shifts=2
-    )
-
-    scheduler = ProductionScheduler(
+    # Create and run DES scheduler
+    scheduler = DESScheduler(
         orders=loader.orders,
         core_mapping=loader.core_mapping,
         core_inventory=loader.core_inventory,
-        operations=loader.operations,
-        work_schedule=work_schedule
+        operations=loader.operations
     )
 
     from datetime import datetime
-    scheduler.schedule_orders(start_date=datetime(2026, 2, 1, 5, 0))
+    # Start on Monday Feb 2, 2026 at 5:20 AM (after handover)
+    scheduler.schedule_orders(start_date=datetime(2026, 2, 2, 5, 20))
+
+    # Print summary
+    scheduler.print_summary()
 
     # Export all reports
     files = export_all_reports(scheduler)

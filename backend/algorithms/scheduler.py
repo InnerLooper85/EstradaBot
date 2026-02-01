@@ -220,9 +220,11 @@ class ScheduledOrder:
     blast_date: datetime = None
     completion_date: datetime = None
     turnaround_days: float = None
+    basic_finish_date: datetime = None  # From SAP - used for On-Time calculation
     promise_date: datetime = None
     on_time: bool = True
     creation_date: datetime = None
+    planned_desma: str = None  # Which Desma machine is assigned
 
 
 @dataclass
