@@ -84,6 +84,7 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Seq': seq,
             'WO#': order.wo_number,
             'Part Number': order.part_number,
+            'Description': str(order.description)[:50] if order.description else '',
             'Customer': order.customer[:30] if order.customer else '',
             'BLAST Date': order.blast_date.strftime('%Y-%m-%d') if order.blast_date else '',
             'BLAST Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
@@ -130,7 +131,8 @@ def export_core_schedule(scheduled_orders: List, output_path: str) -> str:
                 'Load Date': core_load_time.strftime('%Y-%m-%d'),
                 'Load Time': core_load_time.strftime('%H:%M'),
                 'For WO#': order.wo_number,
-                'Part Number': order.part_number
+                'Part Number': order.part_number,
+                'Description': str(order.description)[:50] if order.description else ''
             })
 
     # Sort by load time
@@ -143,7 +145,7 @@ def export_core_schedule(scheduled_orders: List, output_path: str) -> str:
     # Reorder columns
     df = pd.DataFrame(core_loads)
     if not df.empty:
-        df = df[['Seq', 'Core', 'Load Date', 'Load Time', 'For WO#', 'Part Number']]
+        df = df[['Seq', 'Core', 'Load Date', 'Load Time', 'For WO#', 'Part Number', 'Description']]
 
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Core Oven Schedule', index=False)

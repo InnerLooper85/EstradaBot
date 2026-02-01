@@ -638,12 +638,49 @@ class ProductionScheduler:
         print(f"   Schedulable orders: {len(schedulable_orders)}")
         print(f"   Pending core orders: {len(self.pending_core_orders)}")
 
+        # Helper function to get Created On date for sorting
+        def get_created_on(o):
+            order = o['order']
+            created_on = order.get('created_on')
+            if created_on and hasattr(created_on, 'timestamp'):
+                return created_on.timestamp()
+            wo_creation = order.get('wo_creation_date')
+            if wo_creation and hasattr(wo_creation, 'timestamp'):
+                return wo_creation.timestamp()
+            return float('inf')
+
+        # Apply hot list priority and deprioritize CAVO orders
+        hot_list = hot_list or []
+        hot_orders = []
+        normal_orders = []
+        cavo_orders = []  # Lowest priority - inventory/no firm demand
+
+        for o in schedulable_orders:
+            wo_number = o['order'].get('wo_number')
+            customer = o['order'].get('customer', '') or ''
+
+            if wo_number in hot_list:
+                hot_orders.append(o)
+            elif 'CAVO DRILLING MOTORS' in customer.upper():
+                cavo_orders.append(o)
+            else:
+                normal_orders.append(o)
+
+        hot_orders.sort(key=get_created_on)
+        normal_orders.sort(key=get_created_on)
+        cavo_orders.sort(key=get_created_on)
+
+        # Combined queue: hot list first, then normal FIFO, then CAVO last
+        order_queue = hot_orders + normal_orders + cavo_orders
+
+        print(f"   Priority breakdown: {len(hot_orders)} hot, {len(normal_orders)} normal, {len(cavo_orders)} CAVO (low priority)")
+
         # Track current time slot
         current_slot = start_date
         takt_interval = timedelta(minutes=20)  # 20-minute intervals
 
         # Process schedulable orders
-        remaining_orders = schedulable_orders.copy()
+        remaining_orders = order_queue.copy()
         max_iterations = len(remaining_orders) * 100  # Safety limit
         iteration = 0
 
