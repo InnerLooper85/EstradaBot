@@ -18,7 +18,9 @@ from parsers import (
     should_exclude_order,
     get_exclusion_summary,
     parse_shop_dispatch,
-    parse_pegging_actual_start_dates
+    parse_pegging_actual_start_dates,
+    parse_hot_list,
+    sort_hot_list_entries
 )
 
 
@@ -34,6 +36,7 @@ class DataLoader:
         self.core_inventory = {}
         self.operations = {}
         self.actual_start_dates = {}  # From Pegging Report
+        self.hot_list_entries = []  # From Hot List file
         self.validation_results = {}
 
     def _find_most_recent_file(self, pattern: str) -> Optional[Path]:
@@ -137,6 +140,48 @@ class DataLoader:
         self.actual_start_dates = parse_pegging_actual_start_dates(str(pegging_file))
 
         print(f"  [OK] Loaded {len(self.actual_start_dates)} actual start dates")
+        return True
+
+    def load_hot_list(self, filepath: Optional[str] = None) -> bool:
+        """
+        Load Hot List data for priority scheduling.
+
+        Args:
+            filepath: Optional explicit filepath. If None, finds most recent file.
+
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if filepath:
+            hot_list_file = Path(filepath)
+        else:
+            # Try multiple patterns for hot list files
+            hot_list_file = self._find_most_recent_file("HOT LIST*.xlsx")
+            if not hot_list_file:
+                hot_list_file = self._find_most_recent_file("HOT_LIST*.xlsx")
+            if not hot_list_file:
+                hot_list_file = self._find_most_recent_file("Hot List*.xlsx")
+
+        if not hot_list_file or not hot_list_file.exists():
+            print("  No Hot List file found (optional)")
+            return False
+
+        print(f"  Loading: {hot_list_file.name}")
+        raw_entries = parse_hot_list(str(hot_list_file))
+
+        # Sort entries by priority
+        self.hot_list_entries = sort_hot_list_entries(raw_entries)
+
+        # Print priority breakdown
+        asap_count = sum(1 for e in self.hot_list_entries if e.get('is_asap'))
+        dated_count = sum(1 for e in self.hot_list_entries if not e.get('is_asap') and e.get('need_by_date'))
+        override_count = sum(1 for e in self.hot_list_entries if e.get('rubber_override'))
+
+        print(f"  [OK] Loaded {len(self.hot_list_entries)} hot list entries")
+        print(f"      ASAP: {asap_count}")
+        print(f"      Dated: {dated_count}")
+        print(f"      With rubber override: {override_count}")
+
         return True
 
     def load_all(self) -> bool:

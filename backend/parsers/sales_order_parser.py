@@ -66,9 +66,18 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                 description = row.get('Material Description')
                 supply_source = row.get('Supply Source') if pd.notna(row.get('Supply Source')) else None
 
+                # Normalize WO number (remove .0 suffix from float conversion)
+                wo_number = None
+                if pd.notna(row.get('Work Order')):
+                    wo_raw = row['Work Order']
+                    if isinstance(wo_raw, float):
+                        wo_number = str(int(wo_raw))
+                    else:
+                        wo_number = str(wo_raw).replace('.0', '')
+
                 # Create order dictionary using actual column names from SAP export
                 order = {
-                    'wo_number': str(row['Work Order']) if pd.notna(row.get('Work Order')) else None,
+                    'wo_number': wo_number,
                     'part_number': part_number,
                     'description': description,
                     'supply_source': supply_source,
@@ -106,6 +115,20 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                 if not order['wo_number'] or not order['part_number']:
                     errors.append(f"Row {index}: Missing WO# or Part Number")
                     continue
+
+                # Rework detection: check for rubber removal operations
+                # If operation >= 1300 and current operation contains "RUBBER REMOVAL"
+                is_rework = False
+                rework_lead_time_hours = 0
+                current_op = order.get('current_operation')
+                if current_op and pd.notna(current_op):
+                    current_op_upper = str(current_op).upper()
+                    if 'RUBBER REMOVAL' in current_op_upper or 'REMOV RB' in current_op_upper:
+                        is_rework = True
+                        rework_lead_time_hours = 36  # 36 working hours for rework
+
+                order['is_rework'] = is_rework
+                order['rework_lead_time_hours'] = rework_lead_time_hours
 
                 orders.append(order)
 

@@ -664,13 +664,13 @@ class DESScheduler:
         return best_machine, best_time
 
     def schedule_orders(self, start_date: datetime = None,
-                        hot_list: List[str] = None) -> List:
+                        hot_list_entries: List[Dict] = None) -> List:
         """
         Schedule all orders using discrete event simulation.
 
         Args:
             start_date: Start date for scheduling
-            hot_list: List of WO numbers to prioritize
+            hot_list_entries: List of hot list entry dicts with priority info
 
         Returns:
             List of ScheduledOrder objects
@@ -683,10 +683,15 @@ class DESScheduler:
         )
 
         self.current_time = start_date
+        self.hot_list_entries = hot_list_entries or []
+        self.hot_list_lookup = {e['wo_number']: e for e in self.hot_list_entries}
+        self.hot_list_core_shortages = []  # Track hot list orders that can't be scheduled
 
         print(f"\n{'='*70}")
         print(f"DES SCHEDULER: {len(self.orders)} ORDERS")
         print(f"Start date: {start_date}")
+        if self.hot_list_entries:
+            print(f"Hot list entries: {len(self.hot_list_entries)}")
         print(f"{'='*70}")
 
         # Step 1: Classify orders
@@ -696,8 +701,8 @@ class DESScheduler:
         print(f"   Schedulable orders: {len(schedulable)}")
         print(f"   Pending core orders: {len(pending)}")
 
-        # Step 2: Sort orders (hot list first, FIFO, CAVO last)
-        sorted_orders = self._sort_orders(schedulable, hot_list)
+        # Step 2: Sort orders (5-tier priority: hot list ASAP, hot list dated, rework, normal, CAVO)
+        sorted_orders = self._sort_orders(schedulable, hot_list_entries)
 
         # Step 3: Schedule BLAST arrivals at takt intervals
         self._schedule_blast_arrivals(sorted_orders, start_date)
@@ -765,9 +770,27 @@ class DESScheduler:
 
         return schedulable, pending
 
-    def _sort_orders(self, orders: List[Dict], hot_list: List[str] = None) -> List[Dict]:
-        """Sort orders: hot list first, then FIFO, CAVO last."""
-        hot_list = hot_list or []
+    def _sort_orders(self, orders: List[Dict], hot_list_entries: List[Dict] = None) -> List[Dict]:
+        """
+        Sort orders with 5-tier priority system:
+
+        1. Hot List - ASAP (sorted by DATE REQ MADE, then row position)
+        2. Hot List - Dated (sorted by NEED BY DATE, then DATE REQ MADE, then row position)
+        3. Rework (sorted by Created On - FIFO)
+        4. Normal (sorted by Created On - FIFO)
+        5. CAVO (sorted by Created On - FIFO, lowest priority)
+
+        Args:
+            orders: List of order info dicts with 'order', 'core_number', 'part_data'
+            hot_list_entries: List of hot list entry dicts (already sorted by priority)
+
+        Returns:
+            Sorted list of orders
+        """
+        hot_list_entries = hot_list_entries or []
+
+        # Create lookup from WO# to hot list entry
+        hot_list_lookup = {e['wo_number']: e for e in hot_list_entries}
 
         def get_created_on(o):
             order = o['order']
@@ -779,28 +802,67 @@ class DESScheduler:
                 return wo_creation.timestamp()
             return float('inf')
 
-        hot_orders = []
+        def get_hot_list_sort_key(o):
+            """Get sort key for hot list orders based on hot list entry."""
+            wo_number = o['order'].get('wo_number')
+            entry = hot_list_lookup.get(wo_number, {})
+
+            is_asap = entry.get('is_asap', False)
+            need_by_date = entry.get('need_by_date')
+            date_req_made = entry.get('date_req_made')
+            row_position = entry.get('row_position', 0)
+
+            # Get timestamps for sorting (lower = higher priority)
+            date_req_ts = date_req_made.timestamp() if date_req_made and hasattr(date_req_made, 'timestamp') else float('inf')
+            need_by_ts = need_by_date.timestamp() if need_by_date and hasattr(need_by_date, 'timestamp') else float('inf')
+
+            if is_asap:
+                # ASAP: priority 0, sort by date_req_made, then row_position
+                return (0, date_req_ts, row_position)
+            else:
+                # Dated: priority 1, sort by need_by_date, then date_req_made, then row_position
+                return (1, need_by_ts, date_req_ts, row_position)
+
+        # Categorize orders
+        hot_list_asap = []
+        hot_list_dated = []
+        rework_orders = []
         normal_orders = []
         cavo_orders = []
 
         for o in orders:
             wo_number = o['order'].get('wo_number')
             customer = o['order'].get('customer', '') or ''
+            is_rework = o['order'].get('is_rework', False)
 
-            if wo_number in hot_list:
-                hot_orders.append(o)
+            if wo_number in hot_list_lookup:
+                entry = hot_list_lookup[wo_number]
+                if entry.get('is_asap'):
+                    hot_list_asap.append(o)
+                else:
+                    hot_list_dated.append(o)
+            elif is_rework:
+                rework_orders.append(o)
             elif 'CAVO DRILLING MOTORS' in customer.upper():
                 cavo_orders.append(o)
             else:
                 normal_orders.append(o)
 
-        hot_orders.sort(key=get_created_on)
+        # Sort each category
+        hot_list_asap.sort(key=get_hot_list_sort_key)
+        hot_list_dated.sort(key=get_hot_list_sort_key)
+        rework_orders.sort(key=get_created_on)
         normal_orders.sort(key=get_created_on)
         cavo_orders.sort(key=get_created_on)
 
-        print(f"   Priority breakdown: {len(hot_orders)} hot, {len(normal_orders)} normal, {len(cavo_orders)} CAVO (low priority)")
+        print(f"   Priority breakdown:")
+        print(f"      Hot List ASAP: {len(hot_list_asap)}")
+        print(f"      Hot List Dated: {len(hot_list_dated)}")
+        print(f"      Rework: {len(rework_orders)}")
+        print(f"      Normal: {len(normal_orders)}")
+        print(f"      CAVO (low priority): {len(cavo_orders)}")
 
-        return hot_orders + normal_orders + cavo_orders
+        return hot_list_asap + hot_list_dated + rework_orders + normal_orders + cavo_orders
 
     def _schedule_blast_arrivals(self, orders: List[Dict], start_date: datetime):
         """Schedule BLAST arrivals at takt intervals, checking core availability."""
@@ -817,6 +879,7 @@ class DESScheduler:
                 order = order_info['order']
                 core_number = order_info['core_number']
                 part_data = order_info['part_data']
+                wo_number = order.get('wo_number')
 
                 # Check core availability
                 core = self._find_available_core(core_number, current_slot)
@@ -827,14 +890,33 @@ class DESScheduler:
                     part_number = order.get('part_number', '')
                     is_reline = part_number.startswith('XN')
 
+                    # Determine rubber type - check for hot list override first
+                    rubber_type = part_data.get('rubber_type') if part_data else None
+                    if wo_number in self.hot_list_lookup:
+                        hot_list_entry = self.hot_list_lookup[wo_number]
+                        rubber_override = hot_list_entry.get('rubber_override')
+                        if rubber_override:
+                            rubber_type = rubber_override
+
+                    # Calculate BLAST time - account for rework lead time
+                    blast_time = current_slot
+                    is_rework = order.get('is_rework', False)
+                    rework_lead_time_hours = order.get('rework_lead_time_hours', 0)
+
+                    if is_rework and rework_lead_time_hours > 0:
+                        # Delay BLAST by rework lead time (rubber removal + prep)
+                        blast_time = self.work_config.advance_time(
+                            current_slot, rework_lead_time_hours
+                        )
+
                     part_state = PartState(
                         part_id=part_id,
-                        wo_number=order.get('wo_number'),
+                        wo_number=wo_number,
                         part_number=part_number,
                         description=order.get('description', ''),
                         customer=order.get('customer', ''),
                         is_reline=is_reline,
-                        rubber_type=part_data.get('rubber_type') if part_data else None,
+                        rubber_type=rubber_type,
                         core_number=core_number,
                         core_suffix=core['suffix'],
                         injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
@@ -849,13 +931,13 @@ class DESScheduler:
 
                     self.parts[part_id] = part_state
 
-                    # Assign core
+                    # Assign core (use blast_time for core return calculation)
                     self._assign_core(core_number, core['suffix'],
-                                     order.get('wo_number'), current_slot, part_data)
+                                     wo_number, blast_time, part_data)
 
                     # Schedule BLAST arrival event
                     event = SimEvent(
-                        time=current_slot,
+                        time=blast_time,
                         event_type=EventType.BLAST_ARRIVAL,
                         part_id=part_id,
                         station='BLAST'
@@ -865,6 +947,11 @@ class DESScheduler:
                     remaining_orders.pop(i)
                     scheduled_this_slot = True
                     break
+                else:
+                    # Core not available - track if this is a hot list order
+                    if wo_number in self.hot_list_lookup:
+                        # Don't add to shortage list yet - it may be scheduled later
+                        pass
 
             if scheduled_this_slot:
                 # Advance to next takt slot
@@ -883,6 +970,15 @@ class DESScheduler:
                         earliest_avail = avail
 
                 if earliest_avail is None:
+                    # No more orders can be scheduled - record hot list shortages
+                    for order_info in remaining_orders:
+                        wo_number = order_info['order'].get('wo_number')
+                        if wo_number in self.hot_list_lookup:
+                            self.hot_list_core_shortages.append({
+                                'wo_number': wo_number,
+                                'core_number_needed': order_info['core_number'],
+                                'hot_list_entry': self.hot_list_lookup[wo_number]
+                            })
                     break
 
                 # Jump to earliest availability

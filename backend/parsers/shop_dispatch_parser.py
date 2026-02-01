@@ -36,14 +36,35 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
         errors = []
         skipped_operation = 0
 
+        rework_count = 0
+
         for index, row in df.iterrows():
             try:
+                # Extract work center info first for rework detection
+                current_wc = str(row.get('Curr.WC', '')).strip().upper() if pd.notna(row.get('Curr.WC')) else ''
+                remaining_wc = str(row.get('Remaining Work Centers', '')).strip().upper() if pd.notna(row.get('Remaining Work Centers')) else ''
+
+                # Rework detection:
+                # - If Curr.WC == "REMOV RB" -> is_rework=True, lead_time=36h
+                # - If "REMOV RB" in Remaining Work Centers -> is_rework=True, lead_time=48h
+                is_rework = False
+                rework_lead_time_hours = 0
+
+                if current_wc == 'REMOV RB':
+                    is_rework = True
+                    rework_lead_time_hours = 36  # Currently at rubber removal
+                elif 'REMOV RB' in remaining_wc:
+                    is_rework = True
+                    rework_lead_time_hours = 48  # Will need to go through rubber removal
+
                 # Get operation number and filter for < 1300 (pre-BLAST)
+                # UNLESS it's a rework order - those should be included regardless of operation
                 operation = row.get('Operation')
                 if pd.notna(operation):
                     try:
                         op_num = int(operation)
-                        if op_num >= 1300:
+                        # Skip if operation >= 1300 AND NOT rework
+                        if op_num >= 1300 and not is_rework:
                             skipped_operation += 1
                             continue
                     except (ValueError, TypeError):
@@ -80,10 +101,13 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
                     'product_type': product_type,
                     'current_operation': operation,
                     'current_work_center': row.get('Curr.WC') if pd.notna(row.get('Curr.WC')) else None,
+                    'remaining_work_centers': row.get('Remaining Work Centers') if pd.notna(row.get('Remaining Work Centers')) else None,
                     'operation_quantity': row.get('Operation Quantity') if pd.notna(row.get('Operation Quantity')) else None,
                     'priority': row.get('Priority') if pd.notna(row.get('Priority')) else None,
                     'elapsed_days': row.get('Elapsed Days') if pd.notna(row.get('Elapsed Days')) else None,
-                    'source': 'Shop Dispatch'
+                    'source': 'Shop Dispatch',
+                    'is_rework': is_rework,
+                    'rework_lead_time_hours': rework_lead_time_hours
                 }
 
                 # Parse operation start date if exists
@@ -93,6 +117,9 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
                     except:
                         pass
 
+                if is_rework:
+                    rework_count += 1
+
                 orders.append(order)
 
             except Exception as e:
@@ -101,9 +128,10 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
 
         # Print summary
         print(f"\nShop Dispatch Parsing complete:")
-        print(f"  - Skipped (Operation >= 1300): {skipped_operation}")
+        print(f"  - Skipped (Operation >= 1300, non-rework): {skipped_operation}")
         print(f"  - Excluded by filters: {len(excluded)}")
         print(f"  - Successfully parsed: {len(orders)} orders")
+        print(f"  - Rework orders detected: {rework_count}")
         print(f"  - Errors: {len(errors)}")
 
         if errors and len(errors) <= 10:

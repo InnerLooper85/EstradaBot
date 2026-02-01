@@ -292,6 +292,7 @@ if __name__ == "__main__":
 
     from data_loader import DataLoader
     from algorithms.des_scheduler import DESScheduler
+    from exporters.impact_analysis_exporter import generate_impact_analysis
 
     print("Testing Excel Export with DES Scheduler")
     print("=" * 60)
@@ -302,7 +303,32 @@ if __name__ == "__main__":
         print("Failed to load data")
         sys.exit(1)
 
-    # Create and run DES scheduler
+    # Load hot list (optional)
+    loader.load_hot_list()
+
+    from datetime import datetime
+    start_date = datetime(2026, 2, 2, 5, 20)  # Monday Feb 2, 2026 at 5:20 AM (after handover)
+
+    # Create and run baseline scheduler (without hot list) for impact analysis
+    baseline_scheduler = None
+    if loader.hot_list_entries:
+        print("\n" + "=" * 60)
+        print("BASELINE SCHEDULE (without hot list)")
+        print("=" * 60)
+
+        baseline_scheduler = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            operations=loader.operations
+        )
+        baseline_scheduler.schedule_orders(start_date=start_date)
+
+    # Create and run DES scheduler (with hot list)
+    print("\n" + "=" * 60)
+    print("MAIN SCHEDULE (with hot list prioritization)")
+    print("=" * 60)
+
     scheduler = DESScheduler(
         orders=loader.orders,
         core_mapping=loader.core_mapping,
@@ -310,15 +336,29 @@ if __name__ == "__main__":
         operations=loader.operations
     )
 
-    from datetime import datetime
-    # Start on Monday Feb 2, 2026 at 5:20 AM (after handover)
-    scheduler.schedule_orders(start_date=datetime(2026, 2, 2, 5, 20))
+    scheduler.schedule_orders(
+        start_date=start_date,
+        hot_list_entries=loader.hot_list_entries
+    )
 
     # Print summary
     scheduler.print_summary()
 
     # Export all reports
     files = export_all_reports(scheduler)
+
+    # Generate impact analysis if we have hot list and baseline
+    if loader.hot_list_entries and baseline_scheduler:
+        project_root = Path(__file__).parent.parent.parent
+        output_dir = project_root / "outputs"
+        impact_file = generate_impact_analysis(
+            scheduled_orders=scheduler.scheduled_orders,
+            baseline_orders=baseline_scheduler.scheduled_orders,
+            hot_list_entries=loader.hot_list_entries,
+            hot_list_core_shortages=getattr(scheduler, 'hot_list_core_shortages', []),
+            output_dir=str(output_dir)
+        )
+        files['impact_analysis'] = impact_file
 
     print("\n[OK] Export complete!")
     for name, path in files.items():
