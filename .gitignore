@@ -1,0 +1,27 @@
+# Output files
+outputs/
+
+# IDE and editor settings
+.obsidian/
+.claude/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# Windows
+desktop.ini
+Thumbs.db
+
+# Excel temp files
+~$*.xlsx

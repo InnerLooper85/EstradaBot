@@ -1,0 +1,323 @@
+"""
+Excel Exporter
+Export schedules and reports to Excel format.
+"""
+
+import pandas as pd
+from datetime import datetime
+from typing import List, Dict, Any
+from pathlib import Path
+
+# Add parent directory to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
+    """
+    Export the master schedule to Excel.
+
+    Args:
+        scheduled_orders: List of ScheduledOrder objects
+        output_path: Path for output Excel file
+
+    Returns:
+        Path to the created file
+    """
+    # Convert to list of dictionaries
+    data = []
+    for order in scheduled_orders:
+        data.append({
+            'WO#': order.wo_number,
+            'Part Number': order.part_number,
+            'Description': order.description[:50] if order.description else '',
+            'Customer': order.customer,
+            'Type': 'Reline' if order.is_reline else 'New',
+            'Core': order.assigned_core,
+            'Rubber Type': order.rubber_type,
+            'BLAST Date': order.blast_date,
+            'Completion Date': order.completion_date,
+            'Turnaround (days)': order.turnaround_days,
+            'Promise Date': order.promise_date,
+            'On-Time': 'Yes' if order.on_time else 'No',
+            'Operations': len(order.operations)
+        })
+
+    df = pd.DataFrame(data)
+
+    # Create Excel writer with formatting
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Master Schedule', index=False)
+
+        # Get workbook and worksheet
+        workbook = writer.book
+        worksheet = writer.sheets['Master Schedule']
+
+        # Auto-adjust column widths
+        for idx, col in enumerate(df.columns):
+            # Convert to string and get max length, handling NaN
+            col_data = df[col].fillna('').astype(str)
+            max_data_len = col_data.str.len().max() if len(col_data) > 0 else 0
+            max_length = max(max_data_len, len(col)) + 2
+            # Handle columns beyond Z (use openpyxl's get_column_letter)
+            from openpyxl.utils import get_column_letter
+            worksheet.column_dimensions[get_column_letter(idx + 1)].width = min(max_length, 40)
+
+        # Freeze top row
+        worksheet.freeze_panes = 'A2'
+
+    print(f"[OK] Master schedule exported to: {output_path}")
+    return output_path
+
+
+def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
+    """
+    Export the BLAST operation schedule (printable).
+    """
+    # Sort by BLAST date
+    orders_with_blast = [o for o in scheduled_orders if o.blast_date]
+    orders_with_blast.sort(key=lambda x: x.blast_date)
+
+    data = []
+    for seq, order in enumerate(orders_with_blast, 1):
+        data.append({
+            'Seq': seq,
+            'WO#': order.wo_number,
+            'Part Number': order.part_number,
+            'Customer': order.customer[:30] if order.customer else '',
+            'BLAST Date': order.blast_date.strftime('%Y-%m-%d') if order.blast_date else '',
+            'BLAST Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
+            'Core Required': order.assigned_core
+        })
+
+    df = pd.DataFrame(data)
+
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='BLAST Schedule', index=False)
+
+        worksheet = writer.sheets['BLAST Schedule']
+
+        # Format for printing
+        from openpyxl.utils import get_column_letter
+        for idx, col in enumerate(df.columns):
+            col_data = df[col].fillna('').astype(str)
+            max_data_len = col_data.str.len().max() if len(col_data) > 0 else 0
+            max_length = max(max_data_len, len(col)) + 2
+            worksheet.column_dimensions[get_column_letter(idx + 1)].width = min(max_length, 30)
+
+        worksheet.freeze_panes = 'A2'
+
+    print(f"[OK] BLAST schedule exported to: {output_path}")
+    return output_path
+
+
+def export_core_schedule(scheduled_orders: List, output_path: str) -> str:
+    """
+    Export the Core Oven loading schedule.
+    """
+    # Extract core loading times (based on BLAST - 2.5 hours for heating)
+    core_loads = []
+
+    for order in scheduled_orders:
+        if order.blast_date and order.assigned_core:
+            # Core needs to be loaded ~2.5 hours before assembly
+            # Assembly is after BLAST, so approximate
+            from datetime import timedelta
+            core_load_time = order.blast_date - timedelta(hours=1)  # Approximation
+
+            core_loads.append({
+                'Core': order.assigned_core,
+                'Load Date': core_load_time.strftime('%Y-%m-%d'),
+                'Load Time': core_load_time.strftime('%H:%M'),
+                'For WO#': order.wo_number,
+                'Part Number': order.part_number
+            })
+
+    # Sort by load time
+    core_loads.sort(key=lambda x: (x['Load Date'], x['Load Time']))
+
+    # Add sequence numbers
+    for seq, load in enumerate(core_loads, 1):
+        load['Seq'] = seq
+
+    # Reorder columns
+    df = pd.DataFrame(core_loads)
+    if not df.empty:
+        df = df[['Seq', 'Core', 'Load Date', 'Load Time', 'For WO#', 'Part Number']]
+
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Core Oven Schedule', index=False)
+
+        worksheet = writer.sheets['Core Oven Schedule']
+
+        from openpyxl.utils import get_column_letter
+        for idx, col in enumerate(df.columns):
+            col_data = df[col].fillna('').astype(str)
+            max_data_len = col_data.str.len().max() if len(col_data) > 0 else 0
+            max_length = max(max_data_len, len(col)) + 2
+            worksheet.column_dimensions[get_column_letter(idx + 1)].width = min(max_length, 25)
+
+        worksheet.freeze_panes = 'A2'
+
+    print(f"[OK] Core oven schedule exported to: {output_path}")
+    return output_path
+
+
+def export_pending_core_report(pending_orders: List[Dict], output_path: str) -> str:
+    """
+    Export the Pending Core report - orders that cannot be scheduled
+    because their required core is not in inventory.
+
+    Args:
+        pending_orders: List of order dicts with pending core info
+        output_path: Path for output Excel file
+
+    Returns:
+        Path to the created file
+    """
+    data = []
+    for order in pending_orders:
+        # Format dates safely
+        created_on = order.get('created_on')
+        if created_on and hasattr(created_on, 'strftime'):
+            created_on_str = created_on.strftime('%Y-%m-%d')
+        else:
+            created_on_str = str(created_on) if created_on else ''
+
+        promise_date = order.get('promise_date')
+        if promise_date and hasattr(promise_date, 'strftime'):
+            promise_date_str = promise_date.strftime('%Y-%m-%d')
+        else:
+            promise_date_str = str(promise_date) if promise_date else ''
+
+        data.append({
+            'WO#': order.get('wo_number', ''),
+            'Part Number': order.get('part_number', ''),
+            'Description': (order.get('description', '') or '')[:50],
+            'Customer': order.get('customer', ''),
+            'Core Number Needed': order.get('core_number_needed', 'Unknown'),
+            'Reason': order.get('reason', 'Core not in inventory'),
+            'Created On': created_on_str,
+            'Promise Date': promise_date_str
+        })
+
+    df = pd.DataFrame(data)
+
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Pending Core', index=False)
+
+        worksheet = writer.sheets['Pending Core']
+
+        # Format columns
+        from openpyxl.utils import get_column_letter
+        for idx, col in enumerate(df.columns):
+            col_data = df[col].fillna('').astype(str)
+            max_data_len = col_data.str.len().max() if len(col_data) > 0 else 0
+            max_length = max(max_data_len, len(col)) + 2
+            worksheet.column_dimensions[get_column_letter(idx + 1)].width = min(max_length, 40)
+
+        worksheet.freeze_panes = 'A2'
+
+    print(f"[OK] Pending core report exported to: {output_path}")
+    return output_path
+
+
+def export_all_reports(scheduler, output_dir: str = None) -> Dict[str, str]:
+    """
+    Export all reports from a scheduler instance.
+
+    Args:
+        scheduler: ProductionScheduler instance with scheduled_orders
+        output_dir: Output directory path. Defaults to project's outputs folder.
+
+    Returns:
+        Dictionary of report names to file paths
+    """
+    from pathlib import Path
+
+    if output_dir is None:
+        # Default to project root's outputs folder
+        project_root = Path(__file__).parent.parent.parent
+        output_dir = project_root / "outputs"
+    else:
+        output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    files = {}
+
+    # Master Schedule
+    master_path = output_dir / f"Master_Schedule_{timestamp}.xlsx"
+    files['master_schedule'] = export_master_schedule(
+        scheduler.scheduled_orders, str(master_path)
+    )
+
+    # BLAST Schedule
+    blast_path = output_dir / f"BLAST_Schedule_{timestamp}.xlsx"
+    files['blast_schedule'] = export_blast_schedule(
+        scheduler.scheduled_orders, str(blast_path)
+    )
+
+    # Core Oven Schedule
+    core_path = output_dir / f"Core_Oven_Schedule_{timestamp}.xlsx"
+    files['core_schedule'] = export_core_schedule(
+        scheduler.scheduled_orders, str(core_path)
+    )
+
+    # Pending Core Report (only if there are pending orders)
+    if hasattr(scheduler, 'pending_core_orders') and scheduler.pending_core_orders:
+        pending_path = output_dir / f"Pending_Core_{timestamp}.xlsx"
+        files['pending_core'] = export_pending_core_report(
+            scheduler.pending_core_orders, str(pending_path)
+        )
+
+    print(f"\n[OK] All reports exported to: {output_dir}")
+
+    return files
+
+
+if __name__ == "__main__":
+    # Test export with actual scheduler
+    import sys
+    from pathlib import Path
+
+    # Add parent to path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from data_loader import DataLoader
+    from algorithms.scheduler import ProductionScheduler, WorkSchedule
+
+    print("Testing Excel Export")
+    print("=" * 60)
+
+    # Load data
+    loader = DataLoader()
+    if not loader.load_all():
+        print("Failed to load data")
+        sys.exit(1)
+
+    # Create and run scheduler
+    work_schedule = WorkSchedule(
+        days_per_week=5,
+        shift_length=10,
+        num_shifts=2
+    )
+
+    scheduler = ProductionScheduler(
+        orders=loader.orders,
+        core_mapping=loader.core_mapping,
+        core_inventory=loader.core_inventory,
+        operations=loader.operations,
+        work_schedule=work_schedule
+    )
+
+    from datetime import datetime
+    scheduler.schedule_orders(start_date=datetime(2026, 2, 1, 5, 0))
+
+    # Export all reports
+    files = export_all_reports(scheduler)
+
+    print("\n[OK] Export complete!")
+    for name, path in files.items():
+        print(f"   {name}: {path}")
