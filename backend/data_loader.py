@@ -197,7 +197,7 @@ class DataLoader:
 
         try:
             # 1. Load Sales Orders (find most recent file)
-            print("\n[1/5] Loading Open Sales Order...")
+            print("\n[1/6] Loading Open Sales Order...")
             sales_order_file = self._find_most_recent_file("Open Sales Order*.xlsx")
             if not sales_order_file:
                 print("[ERROR] No Open Sales Order file found!")
@@ -207,7 +207,7 @@ class DataLoader:
             raw_orders = parse_open_sales_order(str(sales_order_file), sheet_name='RawData')
 
             # Apply filters to sales orders
-            print("\n[2/5] Filtering Sales Orders...")
+            print("\n[2/6] Filtering Sales Orders...")
             self.orders, sales_excluded = self._filter_orders(raw_orders)
             self.excluded_orders.extend(sales_excluded)
 
@@ -223,7 +223,7 @@ class DataLoader:
                 return False
 
             # 3. Load Shop Dispatch (optional)
-            print("\n[3/5] Loading Shop Dispatch...")
+            print("\n[3/6] Loading Shop Dispatch...")
             self.load_shop_dispatch()
 
             # Merge Shop Dispatch orders (avoid duplicates by WO#)
@@ -242,7 +242,7 @@ class DataLoader:
             print(f"\n[OK] Total orders after merge: {len(self.orders)}")
 
             # 3b. Load Pegging Report for Actual Start Dates
-            print("\n[3b/5] Loading Pegging Report...")
+            print("\n[3b/6] Loading Pegging Report...")
             self._load_pegging_report()
 
             # Merge actual start dates into orders
@@ -258,8 +258,12 @@ class DataLoader:
                             matched += 1
                 print(f"  Matched {matched} orders with actual start dates")
 
+            # 3c. Load Hot List for priority scheduling
+            print("\n[3c/6] Loading Hot List...")
+            self.load_hot_list()
+
             # 4. Load Core Mapping
-            print("\n[4/5] Loading Core Mapping...")
+            print("\n[4/6] Loading Core Mapping...")
             core_mapping_file = self.data_dir / "Core Mapping.xlsx"
             self.core_mapping = parse_core_mapping(str(core_mapping_file))
             self.core_inventory = parse_core_inventory(str(core_mapping_file))
@@ -271,7 +275,7 @@ class DataLoader:
             print(f"[OK] Loaded {len(self.core_inventory)} unique cores")
 
             # 5. Load Process Map
-            print("\n[5/5] Loading Process Map...")
+            print("\n[5/6] Loading Process Map...")
             process_map_file = self.data_dir / "Stators Process VSM.xlsx"
             self.operations = parse_process_map(str(process_map_file))
 

@@ -115,8 +115,8 @@
                             <span class="badge priority-normal">NORMAL</span>
                         {% endif %}
                     </td>
-                    <td data-order="{{ order.blast_start.timestamp() if order.blast_start else 0 }}">
-                        {{ order.blast_start.strftime('%m/%d/%y %H:%M') if order.blast_start else '-' }}
+                    <td data-order="{{ order.blast_date.timestamp() if order.blast_date else 0 }}">
+                        {{ order.blast_date.strftime('%m/%d/%y %H:%M') if order.blast_date else '-' }}
                     </td>
                     <td data-order="{{ order.completion_date.timestamp() if order.completion_date else 0 }}">
                         {{ order.completion_date.strftime('%m/%d/%y %H:%M') if order.completion_date else '-' }}
@@ -126,12 +126,18 @@
                     </td>
                     <td>{{ order.turnaround_days if order.turnaround_days else '-' }}</td>
                     <td>
-                        {% if order.on_time_status == 'On Time' %}
-                            <span class="badge bg-success">On Time</span>
-                        {% elif order.on_time_status == 'Late' %}
+                        {% if not order.on_time %}
                             <span class="badge bg-danger">Late</span>
+                        {% elif order.completion_date and (order.basic_finish_date or order.promise_date) %}
+                            {% set deadline = order.basic_finish_date or order.promise_date %}
+                            {% set days_buffer = (deadline - order.completion_date).days %}
+                            {% if days_buffer <= 2 %}
+                                <span class="badge bg-warning text-dark">At Risk</span>
+                            {% else %}
+                                <span class="badge bg-success">On Time</span>
+                            {% endif %}
                         {% else %}
-                            <span class="badge bg-warning text-dark">At Risk</span>
+                            <span class="badge bg-success">On Time</span>
                         {% endif %}
                     </td>
                 </tr>

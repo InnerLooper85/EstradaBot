@@ -226,6 +226,7 @@ class ScheduledOrder:
     on_time: bool = True
     creation_date: datetime = None
     planned_desma: str = None  # Which Desma machine is assigned
+    priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
 
 
 @dataclass

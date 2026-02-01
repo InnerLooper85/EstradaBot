@@ -197,8 +197,8 @@ def get_available_reports():
     if not os.path.exists(output_folder):
         return reports
 
-    for filename in sorted(os.listdir(output_folder), reverse=True):
-        if filename.endswith('.xlsx'):
+    for filename in os.listdir(output_folder):
+        if filename.endswith('.xlsx') and not filename.startswith('~$'):
             filepath = os.path.join(output_folder, filename)
             mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
             size = os.path.getsize(filepath)
@@ -223,7 +223,9 @@ def get_available_reports():
                 'size': size
             })
 
-    return reports[:20]  # Return only most recent 20
+    # Sort by modification time (newest first)
+    reports.sort(key=lambda x: x['modified'], reverse=True)
+    return reports[:50]  # Return most recent 50
 
 
 # ============== Authentication Routes ==============
@@ -356,6 +358,7 @@ def generate_schedule():
 
         # Run baseline schedule (without hot list)
         baseline_orders = scheduler.schedule_orders()
+        active_scheduler = scheduler  # Track which scheduler to get pending orders from
 
         # If hot list exists, run with hot list
         scheduled_orders = baseline_orders
@@ -369,6 +372,7 @@ def generate_schedule():
             scheduled_orders = scheduler_with_hot.schedule_orders(
                 hot_list_entries=loader.hot_list_entries
             )
+            active_scheduler = scheduler_with_hot
 
         # Generate timestamp for reports
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -389,20 +393,48 @@ def generate_schedule():
         export_core_schedule(scheduled_orders, core_path)
         reports['core'] = core_path
 
+        # Pending core report uses orders that couldn't be scheduled (no core available)
         pending_path = os.path.join(output_folder, f'Pending_Core_{timestamp}.xlsx')
-        export_pending_core_report(scheduled_orders, pending_path)
+        pending_orders = getattr(active_scheduler, 'pending_core_orders', [])
+        export_pending_core_report(pending_orders, pending_path)
         reports['pending'] = pending_path
 
         # Impact analysis if hot list was used
         if loader.hot_list_entries:
-            impact_path = os.path.join(output_folder, f'Impact_Analysis_{timestamp}.xlsx')
-            generate_impact_analysis(baseline_orders, scheduled_orders, loader.hot_list_entries, impact_path)
+            hot_list_core_shortages = getattr(active_scheduler, 'hot_list_core_shortages', [])
+            impact_path = generate_impact_analysis(
+                scheduled_orders,
+                baseline_orders,
+                loader.hot_list_entries,
+                hot_list_core_shortages,
+                output_folder
+            )
             reports['impact'] = impact_path
 
         # Calculate stats (ScheduledOrder is a dataclass, use attribute access)
-        on_time_count = sum(1 for o in scheduled_orders if getattr(o, 'on_time', False))
-        late_count = sum(1 for o in scheduled_orders if not getattr(o, 'on_time', True))
-        at_risk_count = 0  # Not tracked separately in current model
+        # At Risk = on_time but completion within 2 days of deadline
+        from datetime import timedelta
+        AT_RISK_BUFFER_DAYS = 2
+
+        on_time_count = 0
+        late_count = 0
+        at_risk_count = 0
+
+        for o in scheduled_orders:
+            if not getattr(o, 'on_time', True):
+                late_count += 1
+            else:
+                # Check if "at risk" - on time but close to deadline
+                deadline = getattr(o, 'basic_finish_date', None) or getattr(o, 'promise_date', None)
+                completion = getattr(o, 'completion_date', None)
+                if deadline and completion:
+                    days_buffer = (deadline - completion).days
+                    if days_buffer <= AT_RISK_BUFFER_DAYS:
+                        at_risk_count += 1
+                    else:
+                        on_time_count += 1
+                else:
+                    on_time_count += 1
 
         turnaround_times = [o.turnaround_days for o in scheduled_orders if o.turnaround_days]
         avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
@@ -444,8 +476,20 @@ def get_schedule():
         return jsonify({'orders': [], 'stats': {}})
 
     # Convert ScheduledOrder dataclass objects to JSON-serializable format
+    AT_RISK_BUFFER_DAYS = 2
     orders_data = []
     for order in current_schedule['orders']:
+        # Calculate on_time_status with At Risk logic
+        if not order.on_time:
+            status = 'Late'
+        else:
+            deadline = getattr(order, 'basic_finish_date', None) or order.promise_date
+            if deadline and order.completion_date:
+                days_buffer = (deadline - order.completion_date).days
+                status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
+            else:
+                status = 'On Time'
+
         order_dict = {
             'wo_number': order.wo_number or '',
             'part_number': order.part_number or '',
@@ -453,12 +497,12 @@ def get_schedule():
             'customer': order.customer or '',
             'core': order.assigned_core or '',
             'rubber_type': order.rubber_type or '',
-            'priority': getattr(order, 'priority', 'Normal'),
+            'priority': order.priority,
             'blast_date': order.blast_date.isoformat() if order.blast_date else '',
             'completion_date': order.completion_date.isoformat() if order.completion_date else '',
             'promise_date': order.promise_date.isoformat() if order.promise_date else '',
             'turnaround_days': order.turnaround_days or '',
-            'on_time_status': 'On Time' if order.on_time else 'Late',
+            'on_time_status': status,
             'is_rework': order.is_reline  # Using is_reline as proxy for rework
         }
         orders_data.append(order_dict)

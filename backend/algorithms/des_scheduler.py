@@ -463,6 +463,9 @@ class PartState:
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
 
+    # Priority tier
+    priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
+
 
 # =============================================================================
 # DES SCHEDULER
@@ -838,14 +841,19 @@ class DESScheduler:
             if wo_number in hot_list_lookup:
                 entry = hot_list_lookup[wo_number]
                 if entry.get('is_asap'):
+                    o['order']['priority'] = 'Hot-ASAP'
                     hot_list_asap.append(o)
                 else:
+                    o['order']['priority'] = 'Hot-Dated'
                     hot_list_dated.append(o)
             elif is_rework:
+                o['order']['priority'] = 'Rework'
                 rework_orders.append(o)
             elif 'CAVO DRILLING MOTORS' in customer.upper():
+                o['order']['priority'] = 'CAVO'
                 cavo_orders.append(o)
             else:
+                o['order']['priority'] = 'Normal'
                 normal_orders.append(o)
 
         # Sort each category
@@ -926,7 +934,8 @@ class DESScheduler:
                         promise_date=order.get('promise_date'),
                         creation_date=order.get('creation_date') or order.get('created_on'),
                         basic_finish_date=order.get('basic_finish_date'),
-                        actual_start_date=order.get('actual_start_date')
+                        actual_start_date=order.get('actual_start_date'),
+                        priority=order.get('priority', 'Normal')
                     )
 
                     self.parts[part_id] = part_state
@@ -1236,7 +1245,8 @@ class DESScheduler:
                 promise_date=part.promise_date,
                 on_time=on_time,
                 creation_date=part.creation_date,
-                planned_desma=part.planned_desma
+                planned_desma=part.planned_desma,
+                priority=part.priority
             )
 
             self.scheduled_orders.append(scheduled)
