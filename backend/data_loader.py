@@ -45,12 +45,22 @@ class DataLoader:
 
         Args:
             pattern: Glob pattern to match (e.g., "Open Sales Order*.xlsx")
+                     Also tries underscore variant (e.g., "Open_Sales_Order*.xlsx")
 
         Returns:
             Path to most recent matching file, or None if no matches
         """
-        search_path = self.data_dir / pattern
-        matches = list(glob.glob(str(search_path)))
+        # Try both space and underscore variants
+        patterns_to_try = [pattern]
+        if ' ' in pattern:
+            patterns_to_try.append(pattern.replace(' ', '_'))
+        elif '_' in pattern:
+            patterns_to_try.append(pattern.replace('_', ' '))
+
+        matches = []
+        for p in patterns_to_try:
+            search_path = self.data_dir / p
+            matches.extend(glob.glob(str(search_path)))
 
         if not matches:
             return None

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Simulation - EstradaBot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/simulation.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-play-circle"></i> Production Simulation</h4>
+    <span class="text-muted" id="scheduleInfo"></span>
+</div>
+
+<!-- Stats Bar -->
+<div class="stats-bar" id="statsBar">
+    <div class="stat-item">
+        <span class="stat-number" id="statTotal">0</span>
+        <span class="stat-label">Total Orders</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-number text-primary" id="statInProgress">0</span>
+        <span class="stat-label">In Progress</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-number text-success" id="statCompleted">0</span>
+        <span class="stat-label">Completed</span>
+    </div>
+    <div class="stat-item">
+        <span class="stat-number text-warning" id="statPending">0</span>
+        <span class="stat-label">Pending</span>
+    </div>
+</div>
+
+<!-- Control Panel -->
+<div class="control-panel">
+    <div class="control-group">
+        <!-- Playback Controls -->
+        <div class="d-flex gap-2">
+            <button class="control-btn" id="btnPlay" title="Play">
+                <i class="bi bi-play-fill"></i>
+            </button>
+            <button class="control-btn" id="btnPause" title="Pause" disabled>
+                <i class="bi bi-pause-fill"></i>
+            </button>
+            <button class="control-btn" id="btnReset" title="Reset">
+                <i class="bi bi-skip-backward-fill"></i>
+            </button>
+        </div>
+
+        <!-- Speed Selector (1 real second = X simulated minutes) -->
+        <div class="speed-selector">
+            <button class="speed-btn active" data-speed="1">1m/s</button>
+            <button class="speed-btn" data-speed="5">5m/s</button>
+            <button class="speed-btn" data-speed="10">10m/s</button>
+            <button class="speed-btn" data-speed="20">20m/s</button>
+            <button class="speed-btn" data-speed="30">30m/s</button>
+        </div>
+
+        <!-- Time Scrubber -->
+        <div class="time-scrubber">
+            <input type="range" id="timeScrubber" min="0" max="100" value="0">
+            <div class="time-display" id="timeDisplay">--:-- --</div>
+        </div>
+
+        <!-- Date Navigation -->
+        <div class="date-picker-group">
+            <button class="date-nav-btn" id="btnPrevDay" title="Previous Day">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <input type="date" id="datePicker" class="form-control form-control-sm" style="width: 150px;">
+            <button class="date-nav-btn" id="btnNextDay" title="Next Day">
+                <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Floor Container -->
+<div class="card">
+    <div class="card-body p-3">
+        <div class="floor-container" id="floorContainer">
+            <!-- Stations and parts will be rendered by JavaScript -->
+            <div class="no-schedule-message" id="noScheduleMessage">
+                <i class="bi bi-calendar-x"></i>
+                <h5>No Schedule Available</h5>
+                <p>Generate a schedule first to see the simulation.</p>
+                <button class="btn btn-primary" onclick="generateSchedule()">
+                    <i class="bi bi-play-circle"></i> Generate Schedule
+                </button>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend" id="legend" style="display: none;">
+            <div class="legend-item">
+                <div class="legend-dot hot-asap"></div>
+                <span>Hot-ASAP</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot hot-dated"></div>
+                <span>Hot-Dated</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot rework"></div>
+                <span>Rework</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot normal"></div>
+                <span>Normal</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot cavo"></div>
+                <span>CAVO</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Part Detail Modal -->
+<div class="modal fade part-detail-modal" id="partDetailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-info-circle"></i>
+                    <span id="modalWoNumber">WO#</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="detail-row">
+                    <span class="detail-label">Part Number</span>
+                    <span class="detail-value" id="modalPartNumber">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Customer</span>
+                    <span class="detail-value" id="modalCustomer">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Priority</span>
+                    <span class="detail-value" id="modalPriority">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Rubber Type</span>
+                    <span class="detail-value" id="modalRubberType">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Assigned Core</span>
+                    <span class="detail-value" id="modalCore">-</span>
+                </div>
+
+                <div class="operations-timeline">
+                    <h6><i class="bi bi-list-check"></i> Operations</h6>
+                    <div id="modalOperations"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/simulation.js') }}"></script>
+<script>
+    // Initialize simulation when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        window.simulation = new ProductionSimulation('floorContainer');
+        simulation.loadData();
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,61 @@
+# Git directory (contains files with old timestamps)
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.env
+.env.local
+.env.production
+env.yaml
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*.log
+*.tmp
+tests/
+pytest.ini
+.coverage
+htmlcov/
+
+# Documentation (not needed for deployment)
+*.md
+docs/
+
+# Excel temp files
+~$*.xlsx
+~$*.xls
+
+# Data files (uploaded via UI, not bundled)
+Scheduler Bot Info/*.xlsx
+Scheduler Bot Info/*.xls
+Scheduler Bot Info/*.pdf
+Scheduler Bot Info/*.XLSX
+Scheduler Bot Info/*.XLS
+
+# Output files
+outputs/*.xlsx
+
+# Node modules (if any)
+node_modules/
+
+# The nul file (Windows artifact)
+nul

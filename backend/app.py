@@ -166,7 +166,7 @@ def get_uploaded_files():
         if not os.path.isfile(filepath):
             continue
 
-        fname_lower = filename.lower()
+        fname_lower = filename.lower().replace('_', ' ')  # Normalize underscores to spaces
         mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
         file_info = {'name': filename, 'modified': mtime}
 
@@ -302,6 +302,13 @@ def reports_page():
     """Reports page."""
     reports = get_available_reports()
     return render_template('reports.html', reports=reports)
+
+
+@app.route('/simulation')
+@login_required
+def simulation_page():
+    """Visual simulation page."""
+    return render_template('simulation.html')
 
 
 # ============== API Routes ==============
@@ -476,19 +483,34 @@ def get_schedule():
         return jsonify({'orders': [], 'stats': {}})
 
     # Convert ScheduledOrder dataclass objects to JSON-serializable format
+    # Recalculate stats to ensure consistency with table display
     AT_RISK_BUFFER_DAYS = 2
     orders_data = []
+    on_time_count = 0
+    late_count = 0
+    at_risk_count = 0
+
     for order in current_schedule['orders']:
         # Calculate on_time_status with At Risk logic
+        # Late: completion_date > basic_finish_date (on_time = False)
+        # At Risk: on_time but completion within 2 days of deadline
+        # On Time: on_time and completion more than 2 days before deadline
         if not order.on_time:
             status = 'Late'
+            late_count += 1
         else:
-            deadline = getattr(order, 'basic_finish_date', None) or order.promise_date
+            deadline = order.basic_finish_date or order.promise_date
             if deadline and order.completion_date:
                 days_buffer = (deadline - order.completion_date).days
-                status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
+                if days_buffer <= AT_RISK_BUFFER_DAYS:
+                    status = 'At Risk'
+                    at_risk_count += 1
+                else:
+                    status = 'On Time'
+                    on_time_count += 1
             else:
                 status = 'On Time'
+                on_time_count += 1
 
         order_dict = {
             'wo_number': order.wo_number or '',
@@ -507,9 +529,22 @@ def get_schedule():
         }
         orders_data.append(order_dict)
 
+    # Build fresh stats that match the table exactly
+    turnaround_times = [o.turnaround_days for o in current_schedule['orders'] if o.turnaround_days]
+    avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+
+    fresh_stats = {
+        'total_orders': len(orders_data),
+        'on_time': on_time_count,
+        'late': late_count,
+        'at_risk': at_risk_count,
+        'avg_turnaround': round(avg_turnaround, 1),
+        'hot_list_count': current_schedule['stats'].get('hot_list_count', 0)
+    }
+
     return jsonify({
         'orders': orders_data,
-        'stats': current_schedule['stats'],
+        'stats': fresh_stats,
         'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
     })
 
@@ -545,6 +580,85 @@ def get_reports():
     for r in reports:
         r['modified'] = r['modified'].isoformat()
     return jsonify(reports)
+
+
+@app.route('/api/simulation-data')
+@login_required
+def get_simulation_data():
+    """Get simulation data for visual factory floor animation."""
+    if not current_schedule['orders']:
+        return jsonify({'error': 'No schedule generated. Please generate a schedule first.'}), 400
+
+    # Station layout configuration (x, y positions for rendering)
+    stations = [
+        {'id': 'BLAST', 'name': 'BLAST', 'x': 50, 'y': 180, 'width': 80, 'height': 50},
+        {'id': 'TUBE PREP', 'name': 'TUBE PREP', 'x': 180, 'y': 100, 'width': 100, 'height': 50, 'capacity': 18},
+        {'id': 'CORE OVEN', 'name': 'CORE OVEN', 'x': 180, 'y': 260, 'width': 100, 'height': 50, 'capacity': 12},
+        {'id': 'ASSEMBLY', 'name': 'ASSEMBLY', 'x': 340, 'y': 180, 'width': 80, 'height': 50},
+        {'id': 'INJECTION', 'name': 'INJECTION', 'x': 470, 'y': 180, 'width': 100, 'height': 80, 'machines': ['D1', 'D2', 'D3', 'D4', 'D5']},
+        {'id': 'CURE', 'name': 'CURE', 'x': 620, 'y': 180, 'width': 80, 'height': 50, 'capacity': 16},
+        {'id': 'QUENCH', 'name': 'QUENCH', 'x': 620, 'y': 280, 'width': 80, 'height': 50, 'capacity': 16},
+        {'id': 'DISASSEMBLY', 'name': 'DISASSEMBLY', 'x': 470, 'y': 330, 'width': 100, 'height': 50},
+        {'id': 'BLD END CUTBACK', 'name': 'CUTBACK', 'x': 340, 'y': 330, 'width': 80, 'height': 50},
+        {'id': 'INJ END CUTBACK', 'name': 'CUTBACK', 'x': 340, 'y': 330, 'width': 80, 'height': 50},
+        {'id': 'CUT THREADS', 'name': 'CUT THREADS', 'x': 210, 'y': 330, 'width': 80, 'height': 50},
+        {'id': 'INSPECT', 'name': 'INSPECT', 'x': 80, 'y': 330, 'width': 80, 'height': 50},
+    ]
+
+    # Get date range from scheduled orders
+    all_starts = []
+    all_ends = []
+    for order in current_schedule['orders']:
+        if order.blast_date:
+            all_starts.append(order.blast_date)
+        if order.completion_date:
+            all_ends.append(order.completion_date)
+        for op in order.operations:
+            all_starts.append(op.start_time)
+            all_ends.append(op.end_time)
+
+    start_date = min(all_starts) if all_starts else datetime.now()
+    end_date = max(all_ends) if all_ends else datetime.now()
+
+    # Convert orders to simulation format
+    parts = []
+    orders_with_ops = 0
+    for order in current_schedule['orders']:
+        operations = []
+        for op in order.operations:
+            operations.append({
+                'station': op.operation_name,
+                'start': op.start_time.isoformat(),
+                'end': op.end_time.isoformat(),
+                'resource': op.resource_id
+            })
+
+        if operations:
+            orders_with_ops += 1
+
+        parts.append({
+            'wo_number': order.wo_number or '',
+            'part_number': order.part_number or '',
+            'customer': order.customer or '',
+            'priority': order.priority or 'Normal',
+            'rubber_type': order.rubber_type or '',
+            'assigned_core': order.assigned_core or '',
+            'is_rework': order.is_reline,
+            'operations': operations
+        })
+
+    print(f"[Simulation API] {len(parts)} parts, {orders_with_ops} with operations")
+
+    return jsonify({
+        'schedule_info': {
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'total_orders': len(parts),
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
+        },
+        'stations': stations,
+        'parts': parts
+    })
 
 
 # ============== Error Handlers ==============

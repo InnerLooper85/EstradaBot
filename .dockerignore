@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.env.local
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/Dev files
+*.log
+*.tmp
+tests/
+pytest.ini
+.coverage
+htmlcov/
+
+# Documentation
+*.md
+docs/
+
+# Excel temp files
+~$*.xlsx
+~$*.xls
+
+# Local data (will be uploaded via UI)
+Scheduler Bot Info/*.xlsx
+Scheduler Bot Info/*.xls
+Scheduler Bot Info/*.pdf
+
+# Outputs (generated at runtime)
+outputs/*.xlsx
