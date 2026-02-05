@@ -4,11 +4,11 @@
 
 | URL | Status |
 |-----|--------|
-| https://estradabot-983132566705.us-central1.run.app | Live |
-| https://estradabot.biz | Pending DNS/SSL (15-30 min) |
-| https://www.estradabot.biz | Pending DNS/SSL |
+| https://estradabot-983132566705.us-central1.run.app | Live (direct Cloud Run) |
+| https://estradabot.biz | Live |
+| https://www.estradabot.biz | Live |
 
-## Test User Accounts
+## User Accounts
 
 | Username | Password | Role |
 |----------|----------|------|
@@ -23,14 +23,35 @@
 - **Project ID:** project-20e62326-f8a0-47bc-be6
 - **Project Number:** 983132566705
 - **Region:** us-central1
+- **GCS Bucket:** `gs://estradabot-files`
+- **Service Account:** `983132566705-compute@developer.gserviceaccount.com`
+
+## Architecture
+
+```
+User Browser
+    |
+    v
+Google Cloud Run (estradabot)
+    |-- Flask web app (gunicorn, 2 workers, 4 threads)
+    |-- Reads/writes files to GCS bucket
+    |
+    v
+Google Cloud Storage (estradabot-files)
+    |-- uploads/       <-- Uploaded input files (Core Mapping, Sales Order, etc.)
+    |-- outputs/       <-- Generated reports (Master Schedule, BLAST, etc.)
+    |-- state/         <-- Persisted schedule state (current_schedule.json)
+```
+
+Files persist in GCS across container restarts, deployments, and scaling events. The last generated schedule is automatically restored when the container starts.
 
 ## Deployment Commands
 
 ### Deploy Updates
 
 ```bash
-cd "C:\Users\SeanFilipow\DD Scheduler Bot"
-gcloud run deploy estradabot --source . --region us-central1 --allow-unauthenticated --env-vars-file env.yaml --memory 512Mi --timeout 300 --project=project-20e62326-f8a0-47bc-be6
+cd "C:\Users\SeanFilipow\.claude-worktrees\DD Scheduler Bot\mystifying-goldberg"
+gcloud run deploy estradabot --source . --region us-central1 --allow-unauthenticated
 ```
 
 ### View Logs
@@ -43,6 +64,14 @@ gcloud run logs read estradabot --region us-central1 --project=project-20e62326-
 
 ```bash
 gcloud beta run domain-mappings describe --domain estradabot.biz --region us-central1 --project=project-20e62326-f8a0-47bc-be6
+```
+
+### View GCS Bucket Contents
+
+```bash
+gcloud storage ls gs://estradabot-files/uploads/
+gcloud storage ls gs://estradabot-files/outputs/
+gcloud storage ls gs://estradabot-files/state/
 ```
 
 ## DNS Configuration (Namecheap)
@@ -77,29 +106,52 @@ Environment variables are stored in `env.yaml` (not committed to git):
 
 - SECRET_KEY - Flask session encryption
 - ADMIN_USERNAME / ADMIN_PASSWORD - Admin account
-- USERS - Additional user accounts
+- USERS - Additional user accounts (format: `username1:password1,username2:password2`)
 - BEHIND_PROXY - Set to true for Cloud Run
+- GCS_BUCKET - GCS bucket name (default: `estradabot-files`)
+
+## IAM / Permissions
+
+The Cloud Run service account needs `storage.objectAdmin` on the GCS bucket. This was granted with:
+
+```bash
+gcloud storage buckets add-iam-policy-binding gs://estradabot-files \
+  --member="serviceAccount:983132566705-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```
 
 ## Cost Estimate
 
-Cloud Run charges only when handling requests:
-- Free tier: 2 million requests/month
-- Expected cost for 4 test users: $0-5/month
+- **Cloud Run:** Free tier covers 2 million requests/month. Expected cost for a small team: $0-5/month
+- **GCS Storage:** $0.020/GB/month for Standard storage. A few MB of Excel files costs essentially nothing
+- **Cloud Build:** Free tier covers 120 build-minutes/day
 
 ## Stopping the Service
 
 To stop and avoid all charges:
 
 ```bash
+# Delete the Cloud Run service
 gcloud run services delete estradabot --region us-central1 --project=project-20e62326-f8a0-47bc-be6
+
+# Optionally delete the GCS bucket and all files
+gcloud storage rm -r gs://estradabot-files
 ```
 
 ## Files Overview
 
 | File | Purpose |
 |------|---------|
-| Dockerfile | Container build configuration |
-| .dockerignore | Files excluded from Docker build |
-| .gcloudignore | Files excluded from Cloud Build |
-| env.yaml | Environment variables (not in git) |
-| requirements.txt | Python dependencies |
+| `Dockerfile` | Container build configuration (Python 3.11, gunicorn) |
+| `.dockerignore` | Files excluded from Docker build |
+| `.gcloudignore` | Files excluded from Cloud Build |
+| `env.yaml` | Environment variables (not in git) |
+| `requirements.txt` | Python dependencies |
+| `backend/app.py` | Flask web application |
+| `backend/gcs_storage.py` | Google Cloud Storage helper module |
+| `backend/data_loader.py` | Loads and validates input data files |
+| `backend/algorithms/des_scheduler.py` | DES scheduling engine |
+| `backend/exporters/` | Excel report generators |
+| `backend/parsers/` | Input file parsers |
+| `backend/templates/` | HTML templates (Jinja2) |
+| `backend/static/` | CSS and JavaScript assets |

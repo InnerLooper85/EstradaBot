@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 """
-EstradaBot - Production Server Launcher
+EstradaBot - Local Production Server Launcher
 
-This script starts the production server using Waitress (Windows-compatible).
+This script starts the production server locally using Waitress (Windows-compatible).
 For Linux/Unix servers, you can also use Gunicorn.
+
+NOTE: For cloud deployment, the app runs via Docker + gunicorn on Google Cloud Run.
+See DEPLOY.md for cloud deployment instructions.
 
 Usage:
     python run_production.py
@@ -15,10 +18,20 @@ Environment Variables (set in .env file):
     - HOST: Server host (default: 0.0.0.0)
     - PORT: Server port (default: 5000)
     - BEHIND_PROXY: Set to 'true' if behind HTTPS reverse proxy
+    - GCS_BUCKET: Google Cloud Storage bucket name (default: estradabot-files)
+                  Required for file persistence. Must have valid GCP credentials
+                  (set via GOOGLE_APPLICATION_CREDENTIALS or running on GCP).
 
 For HTTPS:
     Use a reverse proxy (nginx, Apache, IIS) to handle SSL termination.
     Set BEHIND_PROXY=true in your .env file.
+
+For local development without GCS:
+    The app will still start but file uploads and schedule persistence will fail
+    unless you have GCP credentials configured locally. To set up local GCS access:
+    1. Install gcloud CLI: https://cloud.google.com/sdk/docs/install
+    2. Run: gcloud auth application-default login
+    3. Ensure the GCS_BUCKET exists and you have access
 
 Example nginx configuration is provided in deployment/nginx.conf.example
 """

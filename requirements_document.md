@@ -1,8 +1,22 @@
 # Stator Production Scheduling Application - Requirements Document
 
-**Document Version:** 1.0  
-**Date:** January 31, 2026  
+**Document Version:** 1.1
+**Date:** January 31, 2026
+**Last Updated:** February 4, 2026
 **Project Owner:** Manufacturing Planning Team
+
+---
+
+## Implementation Status (as of February 4, 2026)
+
+> This requirements document describes the original desired functionality. The application is now **live at https://www.estradabot.biz** deployed on Google Cloud Run with Google Cloud Storage for persistent file storage.
+>
+> **Key implementation decisions that differ from this document:**
+> - **Tech stack:** Uses Python Flask + Jinja2 + Bootstrap 5 (not React.js + Node.js as some sections imply)
+> - **File storage:** Uses Google Cloud Storage bucket instead of local filesystem monitoring
+> - **Core Mapping updates:** Admin re-uploads via web UI (no auto-reload file watcher)
+> - **Database:** No database; uses GCS for file persistence and JSON state storage
+> - **Still pending:** Rubber grouping optimization, dual-cylinder mode, resource utilization reports, alert reports, QN integration, automated tests
 
 ---
 
@@ -822,21 +836,29 @@ Display:
 
 ### 15.2 File Locations
 
-**Input Files:**
-- `/path/to/data/Open_Sales_Order.xlsx`
-- `/path/to/data/Pegging_Report.xlsx` (optional)
-- `/path/to/data/Shop_Dispatch_Report.xlsx` (optional)
+**Production (Google Cloud Storage):**
 
-**Reference Files:**
-- `/path/to/reference/Core_Mapping.xlsx` (auto-reload)
-- `/path/to/reference/Stators_Process_VSM.xlsx`
-- `/path/to/reference/stators_only.pdf` (floor map)
+All files are stored in GCS bucket `gs://estradabot-files/`:
+- `uploads/` - All uploaded input files (uploaded via web UI)
+- `outputs/` - Generated reports (created during schedule generation)
+- `state/current_schedule.json` - Persisted schedule state
 
-**Hot List:**
-- `/path/to/data/Hot_List.xlsx` (user uploads)
+**Input Files (uploaded via web UI):**
+- `Open Sales Order *.xlsx` - Uploaded by Planner
+- `Pegging Report *.xlsx` (optional) - Uploaded by Planner
+- `Shop Dispatch *.xlsx` (optional) - Uploaded by Planner
+- `HOT LIST *.xlsx` (optional) - Uploaded by Planner or Customer Service
+
+**Reference Files (uploaded by Admin):**
+- `Core Mapping.xlsx` - Core mapping and process times
+- `Stators Process VSM.xlsx` - Operation routing parameters
+
+**Local Development:**
+
+For local development, files can be placed in `Scheduler Bot Info/` or uploaded via the local web UI.
 
 **Quality Notifications (future):**
-- `/path/to/data/QN_Report.xlsx`
+- QN Report integration not yet implemented
 
 ### 15.3 Contact Information
 

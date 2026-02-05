@@ -1,13 +1,13 @@
 # Stator Production Scheduling Application - Implementation Plan
 
-**Document Version:** 1.1
+**Document Version:** 1.2
 **Date:** February 1, 2026
-**Last Updated:** February 1, 2026
+**Last Updated:** February 4, 2026
 **Estimated Total Timeline:** 8-12 weeks
 
 ---
 
-## Current Status (as of February 1, 2026)
+## Current Status (as of February 4, 2026)
 
 ### Implementation Summary
 
@@ -16,10 +16,11 @@
 | Phase 1: Data Foundation | ✅ COMPLETE | All parsers implemented |
 | Phase 2: Core Scheduling Algorithm | ✅ COMPLETE | DES scheduler (pipeline-based, not queue-based) |
 | Phase 3: Optimization Logic | ⚠️ MOSTLY COMPLETE | Hot list & rework done; rubber grouping not done |
-| Phase 4: User Interface | ❌ NOT STARTED | No web frontend |
-| Phase 5: Visual Simulation | ❌ NOT STARTED | No animated visualization |
-| Phase 6: Reporting & Export | ⚠️ PARTIALLY COMPLETE | Core reports done; utilization/alerts not done |
-| Phase 7: Testing & Refinement | ❌ NOT STARTED | No automated tests |
+| Phase 4: User Interface | ✅ COMPLETE | Flask web app with Bootstrap 5 UI |
+| Phase 5: Visual Simulation | ✅ COMPLETE | Animated factory floor simulation |
+| Phase 6: Reporting & Export | ⚠️ MOSTLY COMPLETE | Core reports done; utilization/alerts not done |
+| Phase 7: Testing & Refinement | ⚠️ IN PROGRESS | Manual testing ongoing; no automated tests |
+| Deployment | ✅ COMPLETE | Live on Google Cloud Run with GCS storage |
 
 ### Architecture Notes
 
@@ -30,8 +31,21 @@ The scheduler uses a **Discrete Event Simulation (DES)** approach with **pipelin
 - 5 injection machines with rubber type tracking
 - 5-tier priority: Hot ASAP → Hot Dated → Rework → Normal → CAVO
 
+### Technology Stack (Actual Implementation)
+
+> **Note:** The original plan described a React.js + Node.js/Express stack. The actual implementation uses:
+> - **Backend:** Python 3.11 with Flask, Jinja2 templates
+> - **Frontend:** Bootstrap 5, jQuery, DataTables (server-rendered HTML + client-side AJAX)
+> - **Storage:** Google Cloud Storage (persistent file storage)
+> - **Deployment:** Google Cloud Run (Docker container with gunicorn)
+> - **Authentication:** Flask-Login with environment-variable-based user management
+
 ### Recent Additions
 
+- **Web Application**: Full Flask web app with login, dashboard, file upload, schedule viewer, reports, and simulation pages
+- **Google Cloud Run Deployment**: Live at https://www.estradabot.biz
+- **Google Cloud Storage**: Persistent file storage for uploads, reports, and schedule state
+- **Schedule Persistence**: Generated schedules saved to GCS and automatically restored on container startup, available to all users
 - **Hot List Priority Scheduling**: Supports ASAP and dated entries with REDLINE rubber override
 - **Rework Detection**: Identifies orders needing re-BLAST via REMOV RB work center
 - **Impact Analysis**: Compares baseline schedule vs hot list schedule
@@ -39,17 +53,21 @@ The scheduler uses a **Discrete Event Simulation (DES)** approach with **pipelin
 
 ### What Works Today
 
+**Web application (production):** https://www.estradabot.biz
+1. Log in with assigned credentials
+2. Upload input files via the Upload page
+3. Generate schedule via the Schedule page
+4. Download reports via the Reports page
+5. View animated simulation via the Simulation page
+
+**CLI (local development):**
 ```bash
 # Run full scheduler with exports
 python backend/exporters/excel_exporter.py
-```
 
-This generates:
-- Master Schedule
-- BLAST Schedule
-- Core Oven Schedule
-- Pending Core Report
-- Impact Analysis (if hot list loaded)
+# Run development web server
+python backend/app.py
+```
 
 ---
 
@@ -73,10 +91,10 @@ This generates:
 | Phase 1 | Data Foundation           | 1-2 weeks | Data ingestion and validation | ✅ COMPLETE |
 | Phase 2 | Core Scheduling Algorithm | 2-3 weeks | Basic schedule generation     | ✅ COMPLETE |
 | Phase 3 | Optimization Logic        | 1-2 weeks | Resource optimization         | ⚠️ MOSTLY COMPLETE |
-| Phase 4 | User Interface            | 2-3 weeks | Web application UI            | ❌ NOT STARTED |
-| Phase 5 | Visual Simulation         | 2-3 weeks | Animated simulation           | ❌ NOT STARTED |
-| Phase 6 | Reporting & Export        | 1 week    | All reports and exports       | ⚠️ PARTIAL |
-| Phase 7 | Testing & Refinement      | 1-2 weeks | User acceptance testing       | ❌ NOT STARTED |
+| Phase 4 | User Interface            | 2-3 weeks | Web application UI            | ✅ COMPLETE |
+| Phase 5 | Visual Simulation         | 2-3 weeks | Animated simulation           | ✅ COMPLETE |
+| Phase 6 | Reporting & Export        | 1 week    | All reports and exports       | ⚠️ MOSTLY COMPLETE |
+| Phase 7 | Testing & Refinement      | 1-2 weeks | User acceptance testing       | ⚠️ IN PROGRESS |
 
 
 **Total:** 10-16 weeks (can be compressed with parallel work)
@@ -808,9 +826,13 @@ def optimize_for_turnaround(orders):
 
 ---
 
-## 5. Phase 4: User Interface (Weeks 8-10) ❌ NOT STARTED
+## 5. Phase 4: User Interface (Weeks 8-10) ✅ COMPLETE
 
-> **Status:** No web frontend or REST API endpoints have been implemented. The scheduler currently runs via command line only.
+> **Status (updated Feb 4, 2026):** Fully implemented as a Flask web application with Jinja2 templates, Bootstrap 5, jQuery, and DataTables. Deployed on Google Cloud Run. Authentication via Flask-Login with role-based user accounts configured through environment variables.
+>
+> **Implementation differs from original plan:** Uses Flask + Jinja2 + Bootstrap 5 instead of React.js + Material-UI. API endpoints differ from those described below. See `backend/app.py` for actual routes.
+>
+> **Pages implemented:** Login, Dashboard, Upload, Schedule (with DataTable), Reports (with download), Simulation
 
 ### 5.1 Objectives
 - Build web-based user interface
@@ -1118,9 +1140,9 @@ app.post('/api/schedule/generate',
 
 ---
 
-## 6. Phase 5: Visual Simulation (Weeks 11-13) ❌ NOT STARTED
+## 6. Phase 5: Visual Simulation (Weeks 11-13) ✅ COMPLETE
 
-> **Status:** No floor layout visualization or animated stator movement has been implemented.
+> **Status (updated Feb 4, 2026):** Implemented as an interactive canvas-based animation in `backend/static/js/simulation.js` with `backend/templates/simulation.html`. Shows parts moving through factory floor operations with play/pause controls, speed adjustment, and station utilization coloring. Data served via `/api/simulation-data` endpoint.
 
 ### 6.1 Objectives
 - Build animated simulation of production floor
@@ -1506,14 +1528,15 @@ function SimulationControls({ simulation, onSpeedChange, onJumpToDate }) {
 
 ---
 
-## 7. Phase 6: Reporting & Export (Week 14) ⚠️ PARTIALLY COMPLETE
+## 7. Phase 6: Reporting & Export (Week 14) ⚠️ MOSTLY COMPLETE
 
-> **Status:**
+> **Status (updated Feb 4, 2026):**
 > - ✅ Master Schedule Report (`backend/exporters/excel_exporter.py`)
 > - ✅ BLAST Schedule Report
 > - ✅ Core Oven Schedule Report
 > - ✅ Pending Core Report
 > - ✅ Impact Analysis Report (`backend/exporters/impact_analysis_exporter.py`)
+> - ✅ Reports downloadable via web UI from GCS
 > - ❌ Resource Utilization Report
 > - ❌ Alert Reports (Promise Risk, Core Shortage, Machine Utilization)
 
@@ -1709,9 +1732,9 @@ async function generateMasterScheduleReport(schedule) {
 
 ---
 
-## 8. Phase 7: Testing & Refinement (Weeks 15-16) ❌ NOT STARTED
+## 8. Phase 7: Testing & Refinement (Weeks 15-16) ⚠️ IN PROGRESS
 
-> **Status:** No unit tests, integration tests, or formal user acceptance testing has been performed.
+> **Status (updated Feb 4, 2026):** Manual testing is ongoing with real data on the production deployment. No automated unit tests or formal UAT have been performed. Key bugs found and fixed include: Core Mapping hardcoded path (fixed), Pegging Report path (fixed), GCS permissions (fixed), schedule page blank after restart (fixed with GCS persistence).
 
 ### 8.1 Objectives
 - Comprehensive testing with real data
@@ -1853,24 +1876,26 @@ async function generateMasterScheduleReport(schedule) {
 
 ---
 
-## 9. Deployment & Launch (Week 17)
+## 9. Deployment & Launch (Week 17) ✅ COMPLETE
+
+> **Status (updated Feb 4, 2026):** Application is deployed and live on Google Cloud Run at https://www.estradabot.biz. Custom domain configured via Namecheap DNS. File storage uses Google Cloud Storage bucket `gs://estradabot-files`. See [DEPLOY.md](DEPLOY.md) for full deployment details.
 
 ### 9.1 Deployment Steps
 
 #### Step 9.1: Production Environment Setup
 **Duration:** 1 day
 
-**Infrastructure:**
-- Web server (AWS, Azure, on-premise)
-- Database (if using)
-- File storage for uploads and outputs
-- Backup system
+**Actual Infrastructure:**
+- Google Cloud Run (serverless container hosting)
+- Google Cloud Storage (persistent file storage for uploads, reports, schedule state)
+- No database required (file-based storage via GCS)
+- Docker container with Python 3.11 + gunicorn
 
 **Configuration:**
-- Environment variables (API keys, database URLs)
-- HTTPS/SSL certificate
-- Domain name setup
-- Firewall rules
+- Environment variables via `env.yaml` (SECRET_KEY, user accounts)
+- HTTPS/SSL handled automatically by Cloud Run
+- Custom domain (estradabot.biz) via Cloud Run domain mapping + Namecheap DNS
+- IAM permissions for service account to access GCS bucket
 
 #### Step 9.2: Data Migration
 **Duration:** 0.5 days
