@@ -30,6 +30,7 @@ from exporters.excel_exporter import (
     export_pending_core_report
 )
 from exporters.impact_analysis_exporter import generate_impact_analysis
+import gcs_storage
 
 
 # ============== App Configuration ==============
@@ -139,6 +140,27 @@ current_schedule = {
 }
 
 
+def load_persisted_schedule():
+    """Load schedule state from GCS on startup."""
+    global current_schedule
+    try:
+        state = gcs_storage.load_schedule_state()
+        if state:
+            # Restore the serialized state (orders stay as dicts for JSON API)
+            current_schedule['stats'] = state.get('stats', {})
+            current_schedule['reports'] = state.get('reports', {})
+            current_schedule['generated_at'] = datetime.fromisoformat(state['generated_at']) if state.get('generated_at') else None
+            # Store serialized orders for the API
+            current_schedule['serialized_orders'] = state.get('orders', [])
+            print(f"[Startup] Loaded persisted schedule with {len(current_schedule.get('serialized_orders', []))} orders")
+    except Exception as e:
+        print(f"[Startup] Failed to load persisted schedule: {e}")
+
+
+# Load persisted schedule on module import
+load_persisted_schedule()
+
+
 # ============== Helper Functions ==============
 
 def allowed_file(filename):
@@ -148,83 +170,57 @@ def allowed_file(filename):
 
 
 def get_uploaded_files():
-    """Get list of uploaded files in the upload folder."""
-    files = {
-        'sales_order': None,
-        'shop_dispatch': None,
-        'pegging_report': None,
-        'hot_list': None,
-        'core_mapping': None
-    }
-
-    upload_folder = app.config['UPLOAD_FOLDER']
-    if not os.path.exists(upload_folder):
-        return files
-
-    for filename in os.listdir(upload_folder):
-        filepath = os.path.join(upload_folder, filename)
-        if not os.path.isfile(filepath):
-            continue
-
-        fname_lower = filename.lower().replace('_', ' ')  # Normalize underscores to spaces
-        mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
-        file_info = {'name': filename, 'modified': mtime}
-
-        if 'open sales order' in fname_lower:
-            if files['sales_order'] is None or mtime > files['sales_order']['modified']:
-                files['sales_order'] = file_info
-        elif 'shop dispatch' in fname_lower:
-            if files['shop_dispatch'] is None or mtime > files['shop_dispatch']['modified']:
-                files['shop_dispatch'] = file_info
-        elif 'pegging' in fname_lower:
-            if files['pegging_report'] is None or mtime > files['pegging_report']['modified']:
-                files['pegging_report'] = file_info
-        elif 'hot list' in fname_lower:
-            if files['hot_list'] is None or mtime > files['hot_list']['modified']:
-                files['hot_list'] = file_info
-        elif 'core mapping' in fname_lower:
-            if files['core_mapping'] is None or mtime > files['core_mapping']['modified']:
-                files['core_mapping'] = file_info
-
-    return files
+    """Get list of uploaded files from GCS bucket."""
+    try:
+        return gcs_storage.get_uploaded_files_info()
+    except Exception as e:
+        print(f"[WARN] Failed to get files from GCS: {e}")
+        # Return empty structure on error
+        return {
+            'sales_order': None,
+            'shop_dispatch': None,
+            'pegging_report': None,
+            'hot_list': None,
+            'core_mapping': None,
+            'process_map': None
+        }
 
 
 def get_available_reports():
-    """Get list of generated report files."""
+    """Get list of generated report files from GCS."""
+    try:
+        files = gcs_storage.list_files(gcs_storage.OUTPUTS_FOLDER)
+    except Exception as e:
+        print(f"[WARN] Failed to list reports from GCS: {e}")
+        return []
+
     reports = []
-    output_folder = app.config['OUTPUT_FOLDER']
+    for file_info in files:
+        filename = file_info['name']
+        if not filename.endswith('.xlsx') or filename.startswith('~$'):
+            continue
 
-    if not os.path.exists(output_folder):
-        return reports
+        # Determine report type
+        report_type = 'Unknown'
+        if 'Master_Schedule' in filename:
+            report_type = 'Master Schedule'
+        elif 'BLAST_Schedule' in filename:
+            report_type = 'BLAST Schedule'
+        elif 'Core_Oven' in filename or 'Core_Schedule' in filename:
+            report_type = 'Core Oven Schedule'
+        elif 'Pending_Core' in filename:
+            report_type = 'Pending Core Report'
+        elif 'Impact_Analysis' in filename:
+            report_type = 'Impact Analysis'
 
-    for filename in os.listdir(output_folder):
-        if filename.endswith('.xlsx') and not filename.startswith('~$'):
-            filepath = os.path.join(output_folder, filename)
-            mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
-            size = os.path.getsize(filepath)
+        reports.append({
+            'filename': filename,
+            'type': report_type,
+            'modified': file_info['modified'],
+            'size': file_info['size']
+        })
 
-            # Determine report type
-            report_type = 'Unknown'
-            if 'Master_Schedule' in filename:
-                report_type = 'Master Schedule'
-            elif 'BLAST_Schedule' in filename:
-                report_type = 'BLAST Schedule'
-            elif 'Core_Oven' in filename or 'Core_Schedule' in filename:
-                report_type = 'Core Oven Schedule'
-            elif 'Pending_Core' in filename:
-                report_type = 'Pending Core Report'
-            elif 'Impact_Analysis' in filename:
-                report_type = 'Impact Analysis'
-
-            reports.append({
-                'filename': filename,
-                'type': report_type,
-                'modified': mtime,
-                'size': size
-            })
-
-    # Sort by modification time (newest first)
-    reports.sort(key=lambda x: x['modified'], reverse=True)
+    # Already sorted by modified (newest first) from GCS
     return reports[:50]  # Return most recent 50
 
 
@@ -316,7 +312,7 @@ def simulation_page():
 @app.route('/api/upload', methods=['POST'])
 @login_required
 def upload_file():
-    """Handle file upload."""
+    """Handle file upload to GCS."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
 
@@ -329,28 +325,38 @@ def upload_file():
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type. Only .xlsx and .xls files allowed.'}), 400
 
-    # Save file
+    # Upload to GCS
     filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-
-    flash(f'File "{filename}" uploaded successfully!', 'success')
-    return jsonify({
-        'success': True,
-        'filename': filename,
-        'type': file_type
-    })
+    try:
+        gcs_storage.upload_file_object(file, filename)
+        flash(f'File "{filename}" uploaded successfully!', 'success')
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'type': file_type
+        })
+    except Exception as e:
+        print(f"[ERROR] Failed to upload to GCS: {e}")
+        return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
 
 
 @app.route('/api/generate', methods=['POST'])
 @login_required
 def generate_schedule():
-    """Generate schedule from uploaded files."""
+    """Generate schedule from uploaded files in GCS."""
     global current_schedule
 
     try:
-        # Load data
-        loader = DataLoader(data_dir=app.config['UPLOAD_FOLDER'])
+        # Download files from GCS to local temp directory
+        import tempfile
+        temp_dir = tempfile.mkdtemp(prefix='estradabot_')
+        print(f"[Generate] Downloading files from GCS to {temp_dir}")
+
+        local_paths = gcs_storage.download_files_for_processing(temp_dir)
+        print(f"[Generate] Downloaded files: {local_paths}")
+
+        # Load data from temp directory
+        loader = DataLoader(data_dir=temp_dir)
         loader.load_all()
 
         if not loader.orders:
@@ -383,28 +389,35 @@ def generate_schedule():
 
         # Generate timestamp for reports
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_folder = app.config['OUTPUT_FOLDER']
 
-        # Export reports
+        # Export reports to temp directory, then upload to GCS
         reports = {}
 
-        master_path = os.path.join(output_folder, f'Master_Schedule_{timestamp}.xlsx')
+        master_filename = f'Master_Schedule_{timestamp}.xlsx'
+        master_path = os.path.join(temp_dir, master_filename)
         export_master_schedule(scheduled_orders, master_path)
-        reports['master'] = master_path
+        gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['master'] = master_filename
 
-        blast_path = os.path.join(output_folder, f'BLAST_Schedule_{timestamp}.xlsx')
+        blast_filename = f'BLAST_Schedule_{timestamp}.xlsx'
+        blast_path = os.path.join(temp_dir, blast_filename)
         export_blast_schedule(scheduled_orders, blast_path)
-        reports['blast'] = blast_path
+        gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['blast'] = blast_filename
 
-        core_path = os.path.join(output_folder, f'Core_Oven_Schedule_{timestamp}.xlsx')
+        core_filename = f'Core_Oven_Schedule_{timestamp}.xlsx'
+        core_path = os.path.join(temp_dir, core_filename)
         export_core_schedule(scheduled_orders, core_path)
-        reports['core'] = core_path
+        gcs_storage.upload_file(core_path, core_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['core'] = core_filename
 
         # Pending core report uses orders that couldn't be scheduled (no core available)
-        pending_path = os.path.join(output_folder, f'Pending_Core_{timestamp}.xlsx')
+        pending_filename = f'Pending_Core_{timestamp}.xlsx'
+        pending_path = os.path.join(temp_dir, pending_filename)
         pending_orders = getattr(active_scheduler, 'pending_core_orders', [])
         export_pending_core_report(pending_orders, pending_path)
-        reports['pending'] = pending_path
+        gcs_storage.upload_file(pending_path, pending_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['pending'] = pending_filename
 
         # Impact analysis if hot list was used
         if loader.hot_list_entries:
@@ -414,9 +427,16 @@ def generate_schedule():
                 baseline_orders,
                 loader.hot_list_entries,
                 hot_list_core_shortages,
-                output_folder
+                temp_dir
             )
-            reports['impact'] = impact_path
+            impact_filename = os.path.basename(impact_path)
+            gcs_storage.upload_file(impact_path, impact_filename, gcs_storage.OUTPUTS_FOLDER)
+            reports['impact'] = impact_filename
+
+        # Clean up temp directory
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"[Generate] Cleaned up temp directory {temp_dir}")
 
         # Calculate stats (ScheduledOrder is a dataclass, use attribute access)
         # At Risk = on_time but completion within 2 days of deadline
@@ -446,11 +466,43 @@ def generate_schedule():
         turnaround_times = [o.turnaround_days for o in scheduled_orders if o.turnaround_days]
         avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
 
+        # Serialize orders for persistence and API
+        serialized_orders = []
+        for order in scheduled_orders:
+            deadline = order.basic_finish_date or order.promise_date
+            if not order.on_time:
+                status = 'Late'
+            elif deadline and order.completion_date:
+                days_buffer = (deadline - order.completion_date).days
+                status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
+            else:
+                status = 'On Time'
+
+            serialized_orders.append({
+                'wo_number': order.wo_number or '',
+                'part_number': order.part_number or '',
+                'description': order.description or '',
+                'customer': order.customer or '',
+                'assigned_core': order.assigned_core or '',
+                'rubber_type': order.rubber_type or '',
+                'priority': order.priority,
+                'blast_date': order.blast_date.isoformat() if order.blast_date else None,
+                'completion_date': order.completion_date.isoformat() if order.completion_date else None,
+                'promise_date': order.promise_date.isoformat() if order.promise_date else None,
+                'basic_finish_date': order.basic_finish_date.isoformat() if order.basic_finish_date else None,
+                'turnaround_days': order.turnaround_days,
+                'on_time': order.on_time,
+                'on_time_status': status,
+                'is_reline': order.is_reline
+            })
+
+        generated_at = datetime.now()
+
         # Update global state
         current_schedule = {
             'orders': scheduled_orders,
             'baseline_orders': baseline_orders,
-            'generated_at': datetime.now(),
+            'generated_at': generated_at,
             'reports': reports,
             'stats': {
                 'total_orders': len(scheduled_orders),
@@ -459,14 +511,23 @@ def generate_schedule():
                 'at_risk': at_risk_count,
                 'avg_turnaround': round(avg_turnaround, 1),
                 'hot_list_count': len(loader.hot_list_entries) if loader.hot_list_entries else 0
-            }
+            },
+            'serialized_orders': serialized_orders
         }
+
+        # Persist to GCS for other users / restarts
+        gcs_storage.save_schedule_state({
+            'orders': serialized_orders,
+            'stats': current_schedule['stats'],
+            'reports': reports,
+            'generated_at': generated_at.isoformat()
+        })
 
         flash(f'Schedule generated successfully! {len(scheduled_orders)} orders scheduled.', 'success')
         return jsonify({
             'success': True,
             'stats': current_schedule['stats'],
-            'reports': {k: os.path.basename(v) for k, v in reports.items()}
+            'reports': reports  # Already just filenames now
         })
 
     except Exception as e:
@@ -479,83 +540,109 @@ def generate_schedule():
 @login_required
 def get_schedule():
     """Get current schedule data as JSON."""
-    if not current_schedule['orders']:
-        return jsonify({'orders': [], 'stats': {}})
+    # Check if we have in-memory orders (just generated) or serialized orders (loaded from GCS)
+    if current_schedule.get('orders'):
+        # We have in-memory ScheduledOrder objects - serialize them
+        AT_RISK_BUFFER_DAYS = 2
+        orders_data = []
+        on_time_count = 0
+        late_count = 0
+        at_risk_count = 0
 
-    # Convert ScheduledOrder dataclass objects to JSON-serializable format
-    # Recalculate stats to ensure consistency with table display
-    AT_RISK_BUFFER_DAYS = 2
-    orders_data = []
-    on_time_count = 0
-    late_count = 0
-    at_risk_count = 0
-
-    for order in current_schedule['orders']:
-        # Calculate on_time_status with At Risk logic
-        # Late: completion_date > basic_finish_date (on_time = False)
-        # At Risk: on_time but completion within 2 days of deadline
-        # On Time: on_time and completion more than 2 days before deadline
-        if not order.on_time:
-            status = 'Late'
-            late_count += 1
-        else:
-            deadline = order.basic_finish_date or order.promise_date
-            if deadline and order.completion_date:
-                days_buffer = (deadline - order.completion_date).days
-                if days_buffer <= AT_RISK_BUFFER_DAYS:
-                    status = 'At Risk'
-                    at_risk_count += 1
+        for order in current_schedule['orders']:
+            if not order.on_time:
+                status = 'Late'
+                late_count += 1
+            else:
+                deadline = order.basic_finish_date or order.promise_date
+                if deadline and order.completion_date:
+                    days_buffer = (deadline - order.completion_date).days
+                    if days_buffer <= AT_RISK_BUFFER_DAYS:
+                        status = 'At Risk'
+                        at_risk_count += 1
+                    else:
+                        status = 'On Time'
+                        on_time_count += 1
                 else:
                     status = 'On Time'
                     on_time_count += 1
-            else:
-                status = 'On Time'
-                on_time_count += 1
 
-        order_dict = {
-            'wo_number': order.wo_number or '',
-            'part_number': order.part_number or '',
-            'description': order.description or '',
-            'customer': order.customer or '',
-            'core': order.assigned_core or '',
-            'rubber_type': order.rubber_type or '',
-            'priority': order.priority,
-            'blast_date': order.blast_date.isoformat() if order.blast_date else '',
-            'completion_date': order.completion_date.isoformat() if order.completion_date else '',
-            'promise_date': order.promise_date.isoformat() if order.promise_date else '',
-            'turnaround_days': order.turnaround_days or '',
-            'on_time_status': status,
-            'is_rework': order.is_reline  # Using is_reline as proxy for rework
+            order_dict = {
+                'wo_number': order.wo_number or '',
+                'part_number': order.part_number or '',
+                'description': order.description or '',
+                'customer': order.customer or '',
+                'core': order.assigned_core or '',
+                'rubber_type': order.rubber_type or '',
+                'priority': order.priority,
+                'blast_date': order.blast_date.isoformat() if order.blast_date else '',
+                'completion_date': order.completion_date.isoformat() if order.completion_date else '',
+                'promise_date': order.promise_date.isoformat() if order.promise_date else '',
+                'turnaround_days': order.turnaround_days or '',
+                'on_time_status': status,
+                'is_rework': order.is_reline
+            }
+            orders_data.append(order_dict)
+
+        turnaround_times = [o.turnaround_days for o in current_schedule['orders'] if o.turnaround_days]
+        avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+
+        fresh_stats = {
+            'total_orders': len(orders_data),
+            'on_time': on_time_count,
+            'late': late_count,
+            'at_risk': at_risk_count,
+            'avg_turnaround': round(avg_turnaround, 1),
+            'hot_list_count': current_schedule['stats'].get('hot_list_count', 0)
         }
-        orders_data.append(order_dict)
 
-    # Build fresh stats that match the table exactly
-    turnaround_times = [o.turnaround_days for o in current_schedule['orders'] if o.turnaround_days]
-    avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+        return jsonify({
+            'orders': orders_data,
+            'stats': fresh_stats,
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
+        })
 
-    fresh_stats = {
-        'total_orders': len(orders_data),
-        'on_time': on_time_count,
-        'late': late_count,
-        'at_risk': at_risk_count,
-        'avg_turnaround': round(avg_turnaround, 1),
-        'hot_list_count': current_schedule['stats'].get('hot_list_count', 0)
-    }
+    elif current_schedule.get('serialized_orders'):
+        # We have serialized orders loaded from GCS - use them directly
+        orders_data = []
+        for order in current_schedule['serialized_orders']:
+            orders_data.append({
+                'wo_number': order.get('wo_number', ''),
+                'part_number': order.get('part_number', ''),
+                'description': order.get('description', ''),
+                'customer': order.get('customer', ''),
+                'core': order.get('assigned_core', ''),
+                'rubber_type': order.get('rubber_type', ''),
+                'priority': order.get('priority', ''),
+                'blast_date': order.get('blast_date', ''),
+                'completion_date': order.get('completion_date', ''),
+                'promise_date': order.get('promise_date', ''),
+                'turnaround_days': order.get('turnaround_days', ''),
+                'on_time_status': order.get('on_time_status', 'On Time'),
+                'is_rework': order.get('is_reline', False)
+            })
 
-    return jsonify({
-        'orders': orders_data,
-        'stats': fresh_stats,
-        'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
-    })
+        return jsonify({
+            'orders': orders_data,
+            'stats': current_schedule.get('stats', {}),
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None
+        })
+
+    else:
+        # No schedule data at all
+        return jsonify({'orders': [], 'stats': {}})
 
 
 @app.route('/api/download/<filename>')
 @login_required
 def download_report(filename):
-    """Download a report file."""
-    filepath = os.path.join(app.config['OUTPUT_FOLDER'], secure_filename(filename))
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
+    """Download a report file from GCS."""
+    safe_filename = secure_filename(filename)
+
+    # Download from GCS to temp file
+    temp_path = gcs_storage.download_to_temp(safe_filename, gcs_storage.OUTPUTS_FOLDER)
+    if temp_path:
+        return send_file(temp_path, as_attachment=True, download_name=safe_filename)
     return jsonify({'error': 'File not found'}), 404
 
 

@@ -274,7 +274,13 @@ class DataLoader:
 
             # 4. Load Core Mapping
             print("\n[4/6] Loading Core Mapping...")
-            core_mapping_file = self.data_dir / "Core Mapping.xlsx"
+            core_mapping_file = self._find_most_recent_file("Core Mapping*.xlsx")
+            if not core_mapping_file:
+                core_mapping_file = self._find_most_recent_file("Core_Mapping*.xlsx")
+            if not core_mapping_file:
+                print("[ERROR] No Core Mapping file found!")
+                return False
+            print(f"  Loading: {core_mapping_file.name}")
             self.core_mapping = parse_core_mapping(str(core_mapping_file))
             self.core_inventory = parse_core_inventory(str(core_mapping_file))
 
@@ -286,7 +292,13 @@ class DataLoader:
 
             # 5. Load Process Map
             print("\n[5/6] Loading Process Map...")
-            process_map_file = self.data_dir / "Stators Process VSM.xlsx"
+            process_map_file = self._find_most_recent_file("Stators Process VSM*.xlsx")
+            if not process_map_file:
+                process_map_file = self._find_most_recent_file("Stators_Process_VSM*.xlsx")
+            if not process_map_file:
+                print("[ERROR] No Process Map file found!")
+                return False
+            print(f"  Loading: {process_map_file.name}")
             self.operations = parse_process_map(str(process_map_file))
 
             print(f"[OK] Loaded {len(self.operations)} operations")
