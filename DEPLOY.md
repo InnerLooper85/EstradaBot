@@ -10,13 +10,15 @@
 
 ## User Accounts
 
-| Username | Password | Role |
-|----------|----------|------|
-| admin | EstradaAdmin2026! | Admin |
-| MfgEng | MfgEng2026! | User |
-| Planner | Planner2026! | User |
-| CustomerService | CustSvc2026! | User |
-| Guest | Guest2026! | User |
+| Username | Role | Password Source |
+|----------|------|-----------------|
+| admin | Admin | See `env.yaml` (not committed) or GCP Secret Manager |
+| MfgEng | User | See `env.yaml` or GCP Secret Manager |
+| Planner | User | See `env.yaml` or GCP Secret Manager |
+| CustomerService | User | See `env.yaml` or GCP Secret Manager |
+| Guest | User | See `env.yaml` or GCP Secret Manager |
+
+> **Note:** Passwords are managed through environment variables and should never be stored in version-controlled files. Ask the project admin for credentials.
 
 ## Google Cloud Project
 

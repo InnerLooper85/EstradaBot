@@ -1,0 +1,178 @@
+# EstradaBot - Claude Code Project Instructions
+
+## Session Startup (MANDATORY)
+
+**Before doing ANY work, always run these verification steps and report the results to the developer:**
+
+1. Run `git fetch origin` to get the latest remote state
+2. Run `git branch --show-current` to confirm the active branch
+3. Run `git status` to check for uncommitted changes
+4. Run `git log --oneline -1` to show the current local commit
+5. Run `git log --oneline -1 origin/master` to show the latest remote master commit
+6. Compare local vs remote — if the branch is behind, **warn the developer** before proceeding
+
+**Report format:**
+```
+SESSION CHECK:
+  Branch:          <current branch>
+  Local commit:    <short hash + message>
+  Remote master:   <short hash + message>
+  Status:          UP TO DATE | BEHIND BY X COMMITS | UNCOMMITTED CHANGES
+  Ready to work:   YES | NO — <reason>
+```
+
+If the branch is behind remote or has merge conflicts, do NOT begin work until the developer decides how to handle it.
+
+---
+
+## Project Overview
+
+**EstradaBot** is a discrete event simulation (DES) based production scheduling web application for stator manufacturing. It is deployed on Google Cloud Run with persistent storage via Google Cloud Storage.
+
+- **Repository:** https://github.com/InnerLooper85/EstradaBot.git
+- **Live site:** https://estradabot.biz
+- **GCP Project:** project-20e62326-f8a0-47bc-be6
+- **GCS Bucket:** gs://estradabot-files
+- **Region:** us-central1
+
+---
+
+## Tech Stack
+
+- **Backend:** Python 3.11, Flask 3.0+, gunicorn
+- **Frontend:** Bootstrap 5, jQuery, DataTables, Jinja2 templates
+- **Scheduler Engine:** Custom DES in `backend/algorithms/des_scheduler.py`
+- **Storage:** Google Cloud Storage (uploads, outputs, state)
+- **Deployment:** Docker container on Google Cloud Run
+- **Auth:** Flask-Login with role-based access (Admin, Planner, MfgEng, CustomerService, Guest)
+
+---
+
+## Project Structure
+
+```
+EstradaBot/
+├── backend/
+│   ├── app.py                  # Flask application entry point
+│   ├── gcs_storage.py          # GCS helper module
+│   ├── data_loader.py          # File parsing and validation
+│   ├── validators.py           # Input validation
+│   ├── algorithms/
+│   │   ├── des_scheduler.py    # Main DES scheduling engine (core logic)
+│   │   └── scheduler.py        # Scheduling utilities
+│   ├── exporters/
+│   │   ├── excel_exporter.py   # Excel report generation
+│   │   └── impact_analysis_exporter.py
+│   ├── parsers/                # Input file parsers (Sales Order, Hot List, etc.)
+│   ├── templates/              # Jinja2 HTML templates
+│   └── static/                 # CSS and JavaScript
+├── deployment/                 # Server config examples
+├── Dockerfile                  # Cloud Run container build
+├── requirements.txt            # Python dependencies
+├── .env.example                # Environment variable template
+└── DEPLOY.md                   # Deployment guide and infrastructure details
+```
+
+---
+
+## Key Conventions
+
+### Git Workflow
+- **Main branch:** `master`
+- **Feature branches:** Create a new branch for each feature or fix
+- **Pull requests:** All changes to `master` go through a PR with review
+- **Commit messages:** Short, descriptive — explain the "why" not just the "what"
+- Never force push to `master`
+- Always pull the latest `master` before creating a new branch
+
+### Code Style
+- Python code follows PEP 8
+- Use descriptive variable and function names
+- Add docstrings to new functions and classes
+- Keep Flask routes in `backend/app.py`
+- Keep scheduling logic in `backend/algorithms/`
+- Keep file parsing in `backend/parsers/`
+- Keep export logic in `backend/exporters/`
+
+### File Handling
+- All file I/O goes through GCS in production (`backend/gcs_storage.py`)
+- Local file paths are only for development
+- Input files are Excel (.xlsx) — use openpyxl/pandas for reading
+- Output files are Excel (.xlsx) — use openpyxl for writing
+
+### Environment Variables
+- Never hardcode secrets — use environment variables
+- Reference `.env.example` for the full list of required variables
+- Production secrets are managed in GCP (env.yaml, not committed to git)
+
+---
+
+## Sensitive Files — DO NOT Commit
+
+- `.env` — local environment variables with passwords
+- `env.yaml` — production environment variables
+- Any file containing passwords, API keys, or secrets
+- `DEPLOY.md` contains credentials — it is currently committed but should be treated as sensitive reference material
+
+---
+
+## Testing Changes Locally
+
+```bash
+# Create/activate virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your local settings
+
+# Run the development server
+python run_production.py
+```
+
+The app will be available at http://localhost:5000
+
+---
+
+## Deploying to Production
+
+Deployment is done via Google Cloud Run from the repo root:
+
+```bash
+gcloud run deploy estradabot --source . --region us-central1 --allow-unauthenticated
+```
+
+**Before deploying:**
+1. Ensure all tests pass locally
+2. Ensure your changes are committed and pushed
+3. Coordinate with the team — only one deploy at a time
+4. Verify the live site after deployment: https://estradabot.biz
+
+---
+
+## Common Tasks Reference
+
+| Task | Where to look |
+|------|---------------|
+| Add a new input parser | `backend/parsers/` — follow existing parser patterns |
+| Modify scheduling logic | `backend/algorithms/des_scheduler.py` |
+| Add a new page/route | `backend/app.py` + `backend/templates/` |
+| Change export format | `backend/exporters/` |
+| Update frontend styles | `backend/static/` |
+| Modify GCS integration | `backend/gcs_storage.py` |
+| Update dependencies | `requirements.txt` + rebuild container |
+
+---
+
+## Team Coordination
+
+- Before starting work on a feature, check the GitHub project board and open PRs
+- If someone else is working on the same area, coordinate before making changes
+- Use descriptive branch names: `feature/add-rework-tracking`, `fix/hot-list-parsing`
+- Keep PRs focused — one feature or fix per PR
+- Review teammates' PRs promptly
