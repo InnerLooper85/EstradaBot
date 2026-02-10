@@ -179,7 +179,6 @@ def get_uploaded_files():
         return {
             'sales_order': None,
             'shop_dispatch': None,
-            'pegging_report': None,
             'hot_list': None,
             'core_mapping': None,
             'process_map': None

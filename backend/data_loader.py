@@ -18,7 +18,6 @@ from parsers import (
     should_exclude_order,
     get_exclusion_summary,
     parse_shop_dispatch,
-    parse_pegging_actual_start_dates,
     parse_hot_list,
     sort_hot_list_entries
 )
@@ -35,7 +34,6 @@ class DataLoader:
         self.core_mapping = {}
         self.core_inventory = {}
         self.operations = {}
-        self.actual_start_dates = {}  # From Pegging Report
         self.hot_list_entries = []  # From Hot List file
         self.validation_results = {}
 
@@ -123,33 +121,6 @@ class DataLoader:
         self.excluded_orders.extend(dispatch_excluded)
 
         print(f"  [OK] Loaded {len(self.shop_dispatch_orders)} orders from Shop Dispatch")
-        return True
-
-    def _load_pegging_report(self, filepath: Optional[str] = None) -> bool:
-        """
-        Load Pegging Report to get Actual Start Dates.
-
-        Args:
-            filepath: Optional explicit filepath. If None, finds most recent file.
-
-        Returns:
-            True if loaded successfully, False otherwise
-        """
-        if filepath:
-            pegging_file = Path(filepath)
-        else:
-            pegging_file = self._find_most_recent_file("Pegging Report*.XLSX")
-            if not pegging_file:
-                pegging_file = self._find_most_recent_file("Pegging Report*.xlsx")
-
-        if not pegging_file or not pegging_file.exists():
-            print("  No Pegging Report file found (optional)")
-            return False
-
-        print(f"  Loading: {pegging_file.name}")
-        self.actual_start_dates = parse_pegging_actual_start_dates(str(pegging_file))
-
-        print(f"  [OK] Loaded {len(self.actual_start_dates)} actual start dates")
         return True
 
     def load_hot_list(self, filepath: Optional[str] = None) -> bool:
@@ -251,25 +222,8 @@ class DataLoader:
 
             print(f"\n[OK] Total orders after merge: {len(self.orders)}")
 
-            # 3b. Load Pegging Report for Actual Start Dates
-            print("\n[3b/6] Loading Pegging Report...")
-            self._load_pegging_report()
-
-            # Merge actual start dates into orders
-            if self.actual_start_dates:
-                matched = 0
-                for order in self.orders:
-                    wo_number = order.get('wo_number')
-                    if wo_number:
-                        # Try both with and without decimal
-                        wo_str = str(wo_number).replace('.0', '')
-                        if wo_str in self.actual_start_dates:
-                            order['actual_start_date'] = self.actual_start_dates[wo_str]
-                            matched += 1
-                print(f"  Matched {matched} orders with actual start dates")
-
-            # 3c. Load Hot List for priority scheduling
-            print("\n[3c/6] Loading Hot List...")
+            # 3b. Load Hot List for priority scheduling
+            print("\n[3b/6] Loading Hot List...")
             self.load_hot_list()
 
             # 4. Load Core Mapping

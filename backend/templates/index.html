@@ -78,16 +78,6 @@
                             </td>
                         </tr>
                         <tr>
-                            <td><i class="bi bi-file-earmark-excel text-success"></i> Pegging Report</td>
-                            <td class="text-end">
-                                {% if files.pegging_report %}
-                                    <span class="text-success"><i class="bi bi-check-circle"></i> {{ files.pegging_report.name[:30] }}...</span>
-                                {% else %}
-                                    <span class="text-muted"><i class="bi bi-dash-circle"></i> Optional</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        <tr>
                             <td><i class="bi bi-file-earmark-excel text-warning"></i> Hot List</td>
                             <td class="text-end">
                                 {% if files.hot_list %}

@@ -26,7 +26,7 @@ class WorkScheduleConfig:
     Schedule:
     - 4-day work week: Mon-Thu (weekdays 0-3)
     - 12-hour shifts: Day (5:00 AM - 5:00 PM), Night (5:00 PM - 5:00 AM)
-    - Handover: 20 minutes at shift start
+    - Handover: 30 minutes at shift start
     - Breaks: 15 min at 9:00/15:00 (day), 21:00/3:00 (night)
     - Lunch: 45 min at 11:00-11:45 (day), 23:00-23:45 (night)
     """
@@ -35,7 +35,7 @@ class WorkScheduleConfig:
     shift1_end: int = 17    # 5 PM
     shift2_start: int = 17  # 5 PM
     shift2_end: int = 5     # 5 AM (next day)
-    handover_minutes: int = 20
+    handover_minutes: int = 30
     takt_time_minutes: int = 30
 
     # Break times (hour, minute, duration_minutes)
@@ -458,8 +458,6 @@ class PartState:
     promise_date: Optional[datetime] = None
     creation_date: Optional[datetime] = None
     basic_finish_date: Optional[datetime] = None  # From SAP - used for On-Time calculation
-    actual_start_date: Optional[datetime] = None  # From Pegging Report
-
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
 
@@ -934,7 +932,6 @@ class DESScheduler:
                         promise_date=order.get('promise_date'),
                         creation_date=order.get('creation_date') or order.get('created_on'),
                         basic_finish_date=order.get('basic_finish_date'),
-                        actual_start_date=order.get('actual_start_date'),
                         priority=order.get('priority', 'Normal')
                     )
 
@@ -1200,22 +1197,12 @@ class DESScheduler:
                 )
                 operations.append(sched_op)
 
-            # Calculate turnaround based on order type
-            # - New Stators: Completion Date - Actual Start Date (or WO Creation Date if no actual start)
-            # - Relines: Completion Date - WO Creation Date
+            # Calculate turnaround: Completion Date - WO Creation Date
             turnaround_days = None
             if part.completion_time:
                 try:
-                    if part.is_reline:
-                        # Relines: use WO Creation Date
-                        if part.creation_date:
-                            turnaround_days = (part.completion_time - part.creation_date).days
-                    else:
-                        # New Stators: prefer Actual Start Date, fall back to WO Creation Date
-                        if part.actual_start_date:
-                            turnaround_days = (part.completion_time - part.actual_start_date).days
-                        elif part.creation_date:
-                            turnaround_days = (part.completion_time - part.creation_date).days
+                    if part.creation_date:
+                        turnaround_days = (part.completion_time - part.creation_date).days
                 except:
                     pass
 
@@ -1237,7 +1224,6 @@ class DESScheduler:
                 assigned_core=f"{part.core_number}-{part.core_suffix}" if part.core_number else None,
                 rubber_type=part.rubber_type,
                 operations=operations,
-                actual_start_date=part.actual_start_date,
                 blast_date=part.blast_time,
                 completion_date=part.completion_time,
                 turnaround_days=turnaround_days,
