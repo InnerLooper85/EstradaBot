@@ -334,7 +334,45 @@ def upload_file():
     # Upload to GCS
     filename = secure_filename(file.filename)
     try:
-        gcs_storage.upload_file_object(file, filename)
+        # Scrub sensitive columns from sales order files before uploading
+        if file_type == 'sales_order' or 'open sales order' in filename.lower().replace('_', ' '):
+            import tempfile
+            import openpyxl
+
+            # Save to temp file for processing
+            fd, temp_path = tempfile.mkstemp(suffix='.xlsx')
+            os.close(fd)
+            file.save(temp_path)
+
+            # Open and scrub sensitive columns
+            wb = openpyxl.load_workbook(temp_path)
+            scrubbed_columns = []
+            sensitive_headers = ['unit price', 'net price', 'customer address', 'address']
+
+            for ws in wb.worksheets:
+                cols_to_delete = []
+                for col_idx in range(1, ws.max_column + 1):
+                    header = ws.cell(row=1, column=col_idx).value
+                    if header and str(header).strip().lower() in sensitive_headers:
+                        cols_to_delete.append(col_idx)
+                        scrubbed_columns.append(str(header).strip())
+
+                # Delete columns in reverse order to preserve indices
+                for col_idx in sorted(cols_to_delete, reverse=True):
+                    ws.delete_cols(col_idx)
+
+            wb.save(temp_path)
+            wb.close()
+
+            if scrubbed_columns:
+                print(f"[Scrub] Removed sensitive columns from {filename}: {scrubbed_columns}")
+
+            # Upload scrubbed file to GCS
+            gcs_storage.upload_file(temp_path, filename)
+            os.unlink(temp_path)
+        else:
+            gcs_storage.upload_file_object(file, filename)
+
         flash(f'File "{filename}" uploaded successfully!', 'success')
         return jsonify({
             'success': True,
