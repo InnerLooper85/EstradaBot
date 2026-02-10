@@ -165,7 +165,7 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
     Similar to the original get_uploaded_files() but for GCS.
 
     Returns:
-        Dict with keys: sales_order, shop_dispatch, pegging_report, hot_list, core_mapping, process_map
+        Dict with keys: sales_order, shop_dispatch, hot_list, core_mapping, process_map
     """
     files = {
         'sales_order': None,
