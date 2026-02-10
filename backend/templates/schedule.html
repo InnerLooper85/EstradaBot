@@ -5,9 +5,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-table"></i> Schedule</h2>
-    <div>
+    <div class="d-flex align-items-center">
         <span id="publishedBy" class="text-muted me-2"></span>
         <span id="generatedAt" class="text-muted me-3"></span>
+        <!-- Schedule Mode Toggle -->
+        <div id="modeToggle" class="btn-group me-2" role="group" style="display: none;">
+            <button type="button" class="btn btn-sm btn-outline-secondary active" id="btn4day" onclick="switchMode('4day')">4-Day</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btn5day" onclick="switchMode('5day')">5-Day</button>
+        </div>
         <button class="btn btn-outline-primary me-2" onclick="refreshSchedule()">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
@@ -159,10 +164,19 @@
 
 <script>
     let dataTable = null;
+    let currentMode = '4day';
 
     $(document).ready(function() {
         loadSchedule();
     });
+
+    function switchMode(mode) {
+        currentMode = mode;
+        // Update toggle buttons
+        $('#btn4day').toggleClass('active', mode === '4day');
+        $('#btn5day').toggleClass('active', mode === '5day');
+        loadSchedule();
+    }
 
     function loadSchedule() {
         $('#loadingSpinner').show();
@@ -170,7 +184,7 @@
         $('#scheduleTableContainer').hide();
         $('#statsSection').hide();
 
-        fetch('/api/schedule')
+        fetch('/api/schedule?mode=' + currentMode)
             .then(response => response.json())
             .then(data => {
                 $('#loadingSpinner').hide();
@@ -178,6 +192,11 @@
                 if (!data.orders || data.orders.length === 0) {
                     $('#noSchedule').show();
                     return;
+                }
+
+                // Show mode toggle if dual modes are available
+                if (data.has_modes) {
+                    $('#modeToggle').show();
                 }
 
                 // Update stats

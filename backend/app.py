@@ -150,13 +150,31 @@ def load_persisted_schedule():
     try:
         state = gcs_storage.load_schedule_state()
         if state:
-            # Restore the serialized state (orders stay as dicts for JSON API)
-            current_schedule['stats'] = state.get('stats', {})
-            current_schedule['reports'] = state.get('reports', {})
             current_schedule['generated_at'] = datetime.fromisoformat(state['generated_at']) if state.get('generated_at') else None
             current_schedule['published_by'] = state.get('published_by', '')
-            # Store serialized orders for the API
-            current_schedule['serialized_orders'] = state.get('orders', [])
+
+            # Load dual-mode data if available, otherwise fall back to single mode
+            if state.get('modes'):
+                current_schedule['active_mode'] = state.get('active_mode', '4day')
+                current_schedule['modes'] = {}
+                for mode_key in ('4day', '5day'):
+                    mode_data = state['modes'].get(mode_key, {})
+                    current_schedule['modes'][mode_key] = {
+                        'serialized_orders': mode_data.get('orders', []),
+                        'stats': mode_data.get('stats', {}),
+                        'reports': mode_data.get('reports', {})
+                    }
+                # Backward compat: point to 4-day data
+                active = current_schedule['modes'].get('4day', {})
+                current_schedule['serialized_orders'] = active.get('serialized_orders', [])
+                current_schedule['stats'] = active.get('stats', {})
+                current_schedule['reports'] = active.get('reports', {})
+            else:
+                # Legacy single-mode format
+                current_schedule['stats'] = state.get('stats', {})
+                current_schedule['reports'] = state.get('reports', {})
+                current_schedule['serialized_orders'] = state.get('orders', [])
+
             print(f"[Startup] Loaded persisted schedule with {len(current_schedule.get('serialized_orders', []))} orders")
     except Exception as e:
         print(f"[Startup] Failed to load persisted schedule: {e}")
@@ -392,10 +410,159 @@ def upload_file():
         return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
 
 
+def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp):
+    """
+    Run the scheduler for a given working_days configuration.
+    Returns (scheduled_orders, baseline_orders, active_scheduler, reports, stats, serialized_orders).
+    """
+    from datetime import timedelta
+    AT_RISK_BUFFER_DAYS = 2
+
+    # Create scheduler
+    scheduler = DESScheduler(
+        orders=loader.orders,
+        core_mapping=loader.core_mapping,
+        core_inventory=loader.core_inventory,
+        working_days=working_days
+    )
+
+    # Run baseline schedule (without hot list)
+    baseline_orders = scheduler.schedule_orders()
+    active_scheduler = scheduler
+
+    # If hot list exists, run with hot list
+    scheduled_orders = baseline_orders
+    if loader.hot_list_entries:
+        scheduler_with_hot = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=working_days
+        )
+        scheduled_orders = scheduler_with_hot.schedule_orders(
+            hot_list_entries=loader.hot_list_entries
+        )
+        active_scheduler = scheduler_with_hot
+
+    # Export reports
+    reports = {}
+
+    master_filename = f'Master_Schedule_{mode_label}_{timestamp}.xlsx'
+    master_path = os.path.join(temp_dir, master_filename)
+    export_master_schedule(scheduled_orders, master_path)
+    gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
+    reports['master'] = master_filename
+
+    blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
+    blast_path = os.path.join(temp_dir, blast_filename)
+    export_blast_schedule(scheduled_orders, blast_path)
+    gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
+    reports['blast'] = blast_filename
+
+    core_filename = f'Core_Oven_Schedule_{mode_label}_{timestamp}.xlsx'
+    core_path = os.path.join(temp_dir, core_filename)
+    export_core_schedule(scheduled_orders, core_path)
+    gcs_storage.upload_file(core_path, core_filename, gcs_storage.OUTPUTS_FOLDER)
+    reports['core'] = core_filename
+
+    pending_filename = f'Pending_Core_{mode_label}_{timestamp}.xlsx'
+    pending_path = os.path.join(temp_dir, pending_filename)
+    pending_orders = getattr(active_scheduler, 'pending_core_orders', [])
+    export_pending_core_report(pending_orders, pending_path)
+    gcs_storage.upload_file(pending_path, pending_filename, gcs_storage.OUTPUTS_FOLDER)
+    reports['pending'] = pending_filename
+
+    # Impact analysis if hot list was used
+    if loader.hot_list_entries:
+        hot_list_core_shortages = getattr(active_scheduler, 'hot_list_core_shortages', [])
+        impact_path = generate_impact_analysis(
+            scheduled_orders,
+            baseline_orders,
+            loader.hot_list_entries,
+            hot_list_core_shortages,
+            temp_dir
+        )
+        impact_filename = os.path.basename(impact_path)
+        gcs_storage.upload_file(impact_path, impact_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['impact'] = impact_filename
+
+    # Calculate stats
+    on_time_count = 0
+    late_count = 0
+    at_risk_count = 0
+
+    for o in scheduled_orders:
+        if not getattr(o, 'on_time', True):
+            late_count += 1
+        else:
+            deadline = getattr(o, 'basic_finish_date', None) or getattr(o, 'promise_date', None)
+            completion = getattr(o, 'completion_date', None)
+            if deadline and completion:
+                days_buffer = (deadline - completion).days
+                if days_buffer <= AT_RISK_BUFFER_DAYS:
+                    at_risk_count += 1
+                else:
+                    on_time_count += 1
+            else:
+                on_time_count += 1
+
+    turnaround_times = [o.turnaround_days for o in scheduled_orders if o.turnaround_days]
+    avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+
+    # Serialize orders
+    serialized_orders = []
+    for order in scheduled_orders:
+        deadline = order.basic_finish_date or order.promise_date
+        if not order.on_time:
+            status = 'Late'
+        elif deadline and order.completion_date:
+            days_buffer = (deadline - order.completion_date).days
+            status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
+        else:
+            status = 'On Time'
+
+        serialized_orders.append({
+            'wo_number': order.wo_number or '',
+            'serial_number': order.serial_number or '',
+            'part_number': order.part_number or '',
+            'description': order.description or '',
+            'customer': order.customer or '',
+            'assigned_core': order.assigned_core or '',
+            'rubber_type': order.rubber_type or '',
+            'priority': order.priority,
+            'blast_date': order.blast_date.isoformat() if order.blast_date else None,
+            'completion_date': order.completion_date.isoformat() if order.completion_date else None,
+            'promise_date': order.promise_date.isoformat() if order.promise_date else None,
+            'basic_finish_date': order.basic_finish_date.isoformat() if order.basic_finish_date else None,
+            'turnaround_days': order.turnaround_days,
+            'on_time': order.on_time,
+            'on_time_status': status,
+            'is_reline': order.is_reline
+        })
+
+    stats = {
+        'total_orders': len(scheduled_orders),
+        'on_time': on_time_count,
+        'late': late_count,
+        'at_risk': at_risk_count,
+        'avg_turnaround': round(avg_turnaround, 1),
+        'hot_list_count': len(loader.hot_list_entries) if loader.hot_list_entries else 0
+    }
+
+    return {
+        'orders': scheduled_orders,
+        'baseline_orders': baseline_orders,
+        'reports': reports,
+        'stats': stats,
+        'serialized_orders': serialized_orders
+    }
+
+
 @app.route('/api/generate', methods=['POST'])
 @login_required
 def generate_schedule():
-    """Generate schedule from uploaded files in GCS. Only admin/planner roles."""
+    """Generate schedule from uploaded files in GCS. Only admin/planner roles.
+    Runs both 4-day and 5-day schedules."""
     global current_schedule
 
     # Role check: only admin and planner can generate schedules
@@ -418,175 +585,83 @@ def generate_schedule():
         if not loader.orders:
             return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
 
-        # Create scheduler
-        scheduler = DESScheduler(
-            orders=loader.orders,
-            core_mapping=loader.core_mapping,
-            core_inventory=loader.core_inventory
-        )
-
-        # Run baseline schedule (without hot list)
-        baseline_orders = scheduler.schedule_orders()
-        active_scheduler = scheduler  # Track which scheduler to get pending orders from
-
-        # If hot list exists, run with hot list
-        scheduled_orders = baseline_orders
-        if loader.hot_list_entries:
-            # Create new scheduler for hot list run
-            scheduler_with_hot = DESScheduler(
-                orders=loader.orders,
-                core_mapping=loader.core_mapping,
-                core_inventory=loader.core_inventory
-            )
-            scheduled_orders = scheduler_with_hot.schedule_orders(
-                hot_list_entries=loader.hot_list_entries
-            )
-            active_scheduler = scheduler_with_hot
-
-        # Generate timestamp for reports
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        # Export reports to temp directory, then upload to GCS
-        reports = {}
+        # Run 4-day schedule (Mon-Thu)
+        print("[Generate] Running 4-day schedule (Mon-Thu)...")
+        result_4day = _run_schedule_mode(loader, [0, 1, 2, 3], '4Day', temp_dir, timestamp)
 
-        master_filename = f'Master_Schedule_{timestamp}.xlsx'
-        master_path = os.path.join(temp_dir, master_filename)
-        export_master_schedule(scheduled_orders, master_path)
-        gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
-        reports['master'] = master_filename
-
-        blast_filename = f'BLAST_Schedule_{timestamp}.xlsx'
-        blast_path = os.path.join(temp_dir, blast_filename)
-        export_blast_schedule(scheduled_orders, blast_path)
-        gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
-        reports['blast'] = blast_filename
-
-        core_filename = f'Core_Oven_Schedule_{timestamp}.xlsx'
-        core_path = os.path.join(temp_dir, core_filename)
-        export_core_schedule(scheduled_orders, core_path)
-        gcs_storage.upload_file(core_path, core_filename, gcs_storage.OUTPUTS_FOLDER)
-        reports['core'] = core_filename
-
-        # Pending core report uses orders that couldn't be scheduled (no core available)
-        pending_filename = f'Pending_Core_{timestamp}.xlsx'
-        pending_path = os.path.join(temp_dir, pending_filename)
-        pending_orders = getattr(active_scheduler, 'pending_core_orders', [])
-        export_pending_core_report(pending_orders, pending_path)
-        gcs_storage.upload_file(pending_path, pending_filename, gcs_storage.OUTPUTS_FOLDER)
-        reports['pending'] = pending_filename
-
-        # Impact analysis if hot list was used
-        if loader.hot_list_entries:
-            hot_list_core_shortages = getattr(active_scheduler, 'hot_list_core_shortages', [])
-            impact_path = generate_impact_analysis(
-                scheduled_orders,
-                baseline_orders,
-                loader.hot_list_entries,
-                hot_list_core_shortages,
-                temp_dir
-            )
-            impact_filename = os.path.basename(impact_path)
-            gcs_storage.upload_file(impact_path, impact_filename, gcs_storage.OUTPUTS_FOLDER)
-            reports['impact'] = impact_filename
+        # Run 5-day schedule (Mon-Fri)
+        print("[Generate] Running 5-day schedule (Mon-Fri)...")
+        result_5day = _run_schedule_mode(loader, [0, 1, 2, 3, 4], '5Day', temp_dir, timestamp)
 
         # Clean up temp directory
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
         print(f"[Generate] Cleaned up temp directory {temp_dir}")
 
-        # Calculate stats (ScheduledOrder is a dataclass, use attribute access)
-        # At Risk = on_time but completion within 2 days of deadline
-        from datetime import timedelta
-        AT_RISK_BUFFER_DAYS = 2
-
-        on_time_count = 0
-        late_count = 0
-        at_risk_count = 0
-
-        for o in scheduled_orders:
-            if not getattr(o, 'on_time', True):
-                late_count += 1
-            else:
-                # Check if "at risk" - on time but close to deadline
-                deadline = getattr(o, 'basic_finish_date', None) or getattr(o, 'promise_date', None)
-                completion = getattr(o, 'completion_date', None)
-                if deadline and completion:
-                    days_buffer = (deadline - completion).days
-                    if days_buffer <= AT_RISK_BUFFER_DAYS:
-                        at_risk_count += 1
-                    else:
-                        on_time_count += 1
-                else:
-                    on_time_count += 1
-
-        turnaround_times = [o.turnaround_days for o in scheduled_orders if o.turnaround_days]
-        avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
-
-        # Serialize orders for persistence and API
-        serialized_orders = []
-        for order in scheduled_orders:
-            deadline = order.basic_finish_date or order.promise_date
-            if not order.on_time:
-                status = 'Late'
-            elif deadline and order.completion_date:
-                days_buffer = (deadline - order.completion_date).days
-                status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
-            else:
-                status = 'On Time'
-
-            serialized_orders.append({
-                'wo_number': order.wo_number or '',
-                'serial_number': order.serial_number or '',
-                'part_number': order.part_number or '',
-                'description': order.description or '',
-                'customer': order.customer or '',
-                'assigned_core': order.assigned_core or '',
-                'rubber_type': order.rubber_type or '',
-                'priority': order.priority,
-                'blast_date': order.blast_date.isoformat() if order.blast_date else None,
-                'completion_date': order.completion_date.isoformat() if order.completion_date else None,
-                'promise_date': order.promise_date.isoformat() if order.promise_date else None,
-                'basic_finish_date': order.basic_finish_date.isoformat() if order.basic_finish_date else None,
-                'turnaround_days': order.turnaround_days,
-                'on_time': order.on_time,
-                'on_time_status': status,
-                'is_reline': order.is_reline
-            })
-
         generated_at = datetime.now()
 
-        # Update global state
+        # Update global state with both modes
         current_schedule = {
-            'orders': scheduled_orders,
-            'baseline_orders': baseline_orders,
             'generated_at': generated_at,
             'published_by': current_user.username,
-            'reports': reports,
-            'stats': {
-                'total_orders': len(scheduled_orders),
-                'on_time': on_time_count,
-                'late': late_count,
-                'at_risk': at_risk_count,
-                'avg_turnaround': round(avg_turnaround, 1),
-                'hot_list_count': len(loader.hot_list_entries) if loader.hot_list_entries else 0
+            'active_mode': '4day',
+            'modes': {
+                '4day': {
+                    'orders': result_4day['orders'],
+                    'baseline_orders': result_4day['baseline_orders'],
+                    'reports': result_4day['reports'],
+                    'stats': result_4day['stats'],
+                    'serialized_orders': result_4day['serialized_orders']
+                },
+                '5day': {
+                    'orders': result_5day['orders'],
+                    'baseline_orders': result_5day['baseline_orders'],
+                    'reports': result_5day['reports'],
+                    'stats': result_5day['stats'],
+                    'serialized_orders': result_5day['serialized_orders']
+                }
             },
-            'serialized_orders': serialized_orders
+            # Backward compatibility: point to active mode
+            'orders': result_4day['orders'],
+            'baseline_orders': result_4day['baseline_orders'],
+            'reports': result_4day['reports'],
+            'stats': result_4day['stats'],
+            'serialized_orders': result_4day['serialized_orders']
         }
 
-        # Persist to GCS for other users / restarts
+        # Persist to GCS
         gcs_storage.save_schedule_state({
-            'orders': serialized_orders,
-            'stats': current_schedule['stats'],
-            'reports': reports,
             'generated_at': generated_at.isoformat(),
-            'published_by': current_user.username
+            'published_by': current_user.username,
+            'active_mode': '4day',
+            'modes': {
+                '4day': {
+                    'orders': result_4day['serialized_orders'],
+                    'stats': result_4day['stats'],
+                    'reports': result_4day['reports']
+                },
+                '5day': {
+                    'orders': result_5day['serialized_orders'],
+                    'stats': result_5day['stats'],
+                    'reports': result_5day['reports']
+                }
+            },
+            # Backward compat
+            'orders': result_4day['serialized_orders'],
+            'stats': result_4day['stats'],
+            'reports': result_4day['reports']
         })
 
-        flash(f'Schedule generated successfully! {len(scheduled_orders)} orders scheduled.', 'success')
+        total_4 = result_4day['stats']['total_orders']
+        total_5 = result_5day['stats']['total_orders']
+        flash(f'Schedule generated successfully! 4-day: {total_4} orders, 5-day: {total_5} orders.', 'success')
         return jsonify({
             'success': True,
-            'stats': current_schedule['stats'],
-            'reports': reports  # Already just filenames now
+            'stats': result_4day['stats'],
+            'stats_5day': result_5day['stats'],
+            'reports': result_4day['reports']
         })
 
     except Exception as e:
@@ -595,105 +670,156 @@ def generate_schedule():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/schedule')
-@login_required
-def get_schedule():
-    """Get current schedule data as JSON."""
-    # Check if we have in-memory orders (just generated) or serialized orders (loaded from GCS)
-    if current_schedule.get('orders'):
-        # We have in-memory ScheduledOrder objects - serialize them
-        AT_RISK_BUFFER_DAYS = 2
-        orders_data = []
-        on_time_count = 0
-        late_count = 0
-        at_risk_count = 0
+def _serialize_orders_from_objects(orders, stats_ref):
+    """Serialize in-memory ScheduledOrder objects to dicts for the API."""
+    AT_RISK_BUFFER_DAYS = 2
+    orders_data = []
+    on_time_count = 0
+    late_count = 0
+    at_risk_count = 0
 
-        for order in current_schedule['orders']:
-            if not order.on_time:
-                status = 'Late'
-                late_count += 1
-            else:
-                deadline = order.basic_finish_date or order.promise_date
-                if deadline and order.completion_date:
-                    days_buffer = (deadline - order.completion_date).days
-                    if days_buffer <= AT_RISK_BUFFER_DAYS:
-                        status = 'At Risk'
-                        at_risk_count += 1
-                    else:
-                        status = 'On Time'
-                        on_time_count += 1
+    for order in orders:
+        if not order.on_time:
+            status = 'Late'
+            late_count += 1
+        else:
+            deadline = order.basic_finish_date or order.promise_date
+            if deadline and order.completion_date:
+                days_buffer = (deadline - order.completion_date).days
+                if days_buffer <= AT_RISK_BUFFER_DAYS:
+                    status = 'At Risk'
+                    at_risk_count += 1
                 else:
                     status = 'On Time'
                     on_time_count += 1
+            else:
+                status = 'On Time'
+                on_time_count += 1
 
-            order_dict = {
-                'wo_number': order.wo_number or '',
-                'serial_number': order.serial_number or '',
-                'part_number': order.part_number or '',
-                'description': order.description or '',
-                'customer': order.customer or '',
-                'core': order.assigned_core or '',
-                'rubber_type': order.rubber_type or '',
-                'priority': order.priority,
-                'blast_date': order.blast_date.isoformat() if order.blast_date else '',
-                'completion_date': order.completion_date.isoformat() if order.completion_date else '',
-                'promise_date': order.promise_date.isoformat() if order.promise_date else '',
-                'turnaround_days': order.turnaround_days or '',
-                'on_time_status': status,
-                'is_rework': order.is_reline
-            }
-            orders_data.append(order_dict)
+        orders_data.append({
+            'wo_number': order.wo_number or '',
+            'serial_number': order.serial_number or '',
+            'part_number': order.part_number or '',
+            'description': order.description or '',
+            'customer': order.customer or '',
+            'core': order.assigned_core or '',
+            'rubber_type': order.rubber_type or '',
+            'priority': order.priority,
+            'blast_date': order.blast_date.isoformat() if order.blast_date else '',
+            'completion_date': order.completion_date.isoformat() if order.completion_date else '',
+            'promise_date': order.promise_date.isoformat() if order.promise_date else '',
+            'turnaround_days': order.turnaround_days or '',
+            'on_time_status': status,
+            'is_rework': order.is_reline
+        })
 
-        turnaround_times = [o.turnaround_days for o in current_schedule['orders'] if o.turnaround_days]
-        avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+    turnaround_times = [o.turnaround_days for o in orders if o.turnaround_days]
+    avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
 
-        fresh_stats = {
-            'total_orders': len(orders_data),
-            'on_time': on_time_count,
-            'late': late_count,
-            'at_risk': at_risk_count,
-            'avg_turnaround': round(avg_turnaround, 1),
-            'hot_list_count': current_schedule['stats'].get('hot_list_count', 0)
-        }
+    fresh_stats = {
+        'total_orders': len(orders_data),
+        'on_time': on_time_count,
+        'late': late_count,
+        'at_risk': at_risk_count,
+        'avg_turnaround': round(avg_turnaround, 1),
+        'hot_list_count': stats_ref.get('hot_list_count', 0) if stats_ref else 0
+    }
 
+    return orders_data, fresh_stats
+
+
+def _serialize_orders_from_dicts(serialized_orders):
+    """Map serialized order dicts to the API response format."""
+    orders_data = []
+    for order in serialized_orders:
+        orders_data.append({
+            'wo_number': order.get('wo_number', ''),
+            'serial_number': order.get('serial_number', ''),
+            'part_number': order.get('part_number', ''),
+            'description': order.get('description', ''),
+            'customer': order.get('customer', ''),
+            'core': order.get('assigned_core', ''),
+            'rubber_type': order.get('rubber_type', ''),
+            'priority': order.get('priority', ''),
+            'blast_date': order.get('blast_date', ''),
+            'completion_date': order.get('completion_date', ''),
+            'promise_date': order.get('promise_date', ''),
+            'turnaround_days': order.get('turnaround_days', ''),
+            'on_time_status': order.get('on_time_status', 'On Time'),
+            'is_rework': order.get('is_reline', False)
+        })
+    return orders_data
+
+
+@app.route('/api/schedule')
+@login_required
+def get_schedule():
+    """Get current schedule data as JSON. Accepts ?mode=4day|5day query parameter."""
+    mode = request.args.get('mode', '4day')
+    if mode not in ('4day', '5day'):
+        mode = '4day'
+
+    has_modes = current_schedule.get('modes')
+
+    # Resolve the data source for the requested mode
+    mode_data = None
+    if has_modes:
+        mode_data = current_schedule['modes'].get(mode, {})
+
+    # Case 1: We have in-memory ScheduledOrder objects (just generated)
+    if mode_data and mode_data.get('orders'):
+        orders_data, fresh_stats = _serialize_orders_from_objects(
+            mode_data['orders'], mode_data.get('stats', {})
+        )
         return jsonify({
             'orders': orders_data,
             'stats': fresh_stats,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None,
-            'published_by': current_schedule.get('published_by', '')
-        })
-
-    elif current_schedule.get('serialized_orders'):
-        # We have serialized orders loaded from GCS - use them directly
-        orders_data = []
-        for order in current_schedule['serialized_orders']:
-            orders_data.append({
-                'wo_number': order.get('wo_number', ''),
-                'serial_number': order.get('serial_number', ''),
-                'part_number': order.get('part_number', ''),
-                'description': order.get('description', ''),
-                'customer': order.get('customer', ''),
-                'core': order.get('assigned_core', ''),
-                'rubber_type': order.get('rubber_type', ''),
-                'priority': order.get('priority', ''),
-                'blast_date': order.get('blast_date', ''),
-                'completion_date': order.get('completion_date', ''),
-                'promise_date': order.get('promise_date', ''),
-                'turnaround_days': order.get('turnaround_days', ''),
-                'on_time_status': order.get('on_time_status', 'On Time'),
-                'is_rework': order.get('is_reline', False)
-            })
-
-        return jsonify({
-            'orders': orders_data,
-            'stats': current_schedule.get('stats', {}),
+            'mode': mode,
+            'has_modes': True,
             'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
             'published_by': current_schedule.get('published_by', '')
         })
 
-    else:
-        # No schedule data at all
-        return jsonify({'orders': [], 'stats': {}})
+    # Case 2: We have serialized orders from mode data (loaded from GCS)
+    if mode_data and mode_data.get('serialized_orders'):
+        orders_data = _serialize_orders_from_dicts(mode_data['serialized_orders'])
+        return jsonify({
+            'orders': orders_data,
+            'stats': mode_data.get('stats', {}),
+            'mode': mode,
+            'has_modes': True,
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
+            'published_by': current_schedule.get('published_by', '')
+        })
+
+    # Case 3: Legacy single-mode data (in-memory objects)
+    if current_schedule.get('orders'):
+        orders_data, fresh_stats = _serialize_orders_from_objects(
+            current_schedule['orders'], current_schedule.get('stats', {})
+        )
+        return jsonify({
+            'orders': orders_data,
+            'stats': fresh_stats,
+            'mode': '4day',
+            'has_modes': False,
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
+            'published_by': current_schedule.get('published_by', '')
+        })
+
+    # Case 4: Legacy single-mode data (serialized dicts from GCS)
+    if current_schedule.get('serialized_orders'):
+        orders_data = _serialize_orders_from_dicts(current_schedule['serialized_orders'])
+        return jsonify({
+            'orders': orders_data,
+            'stats': current_schedule.get('stats', {}),
+            'mode': '4day',
+            'has_modes': False,
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
+            'published_by': current_schedule.get('published_by', '')
+        })
+
+    # No schedule data at all
+    return jsonify({'orders': [], 'stats': {}, 'mode': '4day', 'has_modes': False})
 
 
 @app.route('/api/download/<filename>')

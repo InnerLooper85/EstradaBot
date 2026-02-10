@@ -495,7 +495,7 @@ class DESScheduler:
 
     def __init__(self, orders: List[Dict], core_mapping: Dict,
                  core_inventory: Dict, operations: Dict = None,
-                 work_schedule: Any = None):
+                 work_schedule: Any = None, working_days: List[int] = None):
         """
         Initialize the DES scheduler.
 
@@ -505,6 +505,7 @@ class DESScheduler:
             core_inventory: Available cores by number
             operations: Operation definitions (optional, uses defaults)
             work_schedule: Legacy parameter, ignored (uses WorkScheduleConfig)
+            working_days: Override working days (e.g., [0,1,2,3] for 4-day, [0,1,2,3,4] for 5-day)
         """
         self.orders = orders
         self.core_mapping = core_mapping
@@ -512,7 +513,10 @@ class DESScheduler:
         self.operations = operations or {}
 
         # Create work schedule config
-        self.work_config = WorkScheduleConfig()
+        if working_days:
+            self.work_config = WorkScheduleConfig(working_days=working_days)
+        else:
+            self.work_config = WorkScheduleConfig()
 
         # Create stations and machines
         self.stations = create_stations()
