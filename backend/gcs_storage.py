@@ -326,3 +326,63 @@ def load_schedule_state() -> Optional[dict]:
     except Exception as e:
         print(f"[GCS] Failed to load schedule state: {e}")
         return None
+
+
+# ============== User Feedback Persistence ==============
+
+FEEDBACK_FILE = 'state/user_feedback.json'
+
+
+def save_feedback(feedback_entry: dict) -> bool:
+    """
+    Append a feedback entry to the feedback JSON file in GCS.
+
+    Args:
+        feedback_entry: Dict with category, priority, page, message, username, submitted_at
+
+    Returns:
+        True if saved successfully
+    """
+    import json
+
+    # Load existing feedback
+    existing = load_feedback()
+
+    # Append new entry
+    existing.append(feedback_entry)
+
+    # Save back
+    bucket = get_bucket()
+    blob = bucket.blob(FEEDBACK_FILE)
+
+    try:
+        json_data = json.dumps(existing, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved feedback ({len(existing)} total entries)")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save feedback: {e}")
+        return False
+
+
+def load_feedback() -> list:
+    """
+    Load all feedback entries from GCS.
+
+    Returns:
+        List of feedback dicts, newest first
+    """
+    import json
+
+    bucket = get_bucket()
+    blob = bucket.blob(FEEDBACK_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, list) else []
+    except NotFound:
+        return []
+    except Exception as e:
+        print(f"[GCS] Failed to load feedback: {e}")
+        return []
