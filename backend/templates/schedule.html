@@ -108,10 +108,39 @@
                 </thead>
                 <tbody id="scheduleTableBody">
                 </tbody>
+                <tfoot>
+                    <tr>
+                        <th>WO#</th>
+                        <th>Serial #</th>
+                        <th>Part Number</th>
+                        <th>Description</th>
+                        <th>Customer</th>
+                        <th>Core</th>
+                        <th>Rubber</th>
+                        <th>Priority</th>
+                        <th>BLAST Date</th>
+                        <th>Completion</th>
+                        <th>Promise Date</th>
+                        <th>Turnaround</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    #scheduleTable tfoot .column-filter {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
+    #scheduleTable tfoot th {
+        padding: 4px;
+    }
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -179,11 +208,34 @@
                     dataTable.destroy();
                 }
 
+                // Dropdown columns: Rubber (6), Priority (7), Status (12)
+                const dropdownColumns = {
+                    6: ['XE', 'HR', 'XD', 'XR'],
+                    7: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
+                    12: ['On Time', 'Late', 'At Risk']
+                };
+
+                // Build filter inputs in tfoot before DataTable init
+                $('#scheduleTable tfoot th').each(function(i) {
+                    if (i === 3) {
+                        // Hidden description column - no filter
+                        $(this).html('');
+                    } else if (dropdownColumns[i]) {
+                        let options = '<option value="">All</option>';
+                        dropdownColumns[i].forEach(val => {
+                            options += `<option value="${val}">${val}</option>`;
+                        });
+                        $(this).html(`<select class="form-select form-select-sm column-filter">${options}</select>`);
+                    } else {
+                        $(this).html('<input type="text" class="form-control form-control-sm column-filter" placeholder="Filter...">');
+                    }
+                });
+
                 dataTable = $('#scheduleTable').DataTable({
                     pageLength: 25,
                     lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
                     order: [[8, 'asc']],  // Sort by BLAST date
-                    dom: 'Bfrtip',
+                    dom: 'Blfrtip',
                     buttons: [
                         {
                             extend: 'excel',
@@ -200,6 +252,26 @@
                     columnDefs: [
                         { targets: [3], visible: false }  // Hide description by default
                     ]
+                });
+
+                // Wire up column filters
+                dataTable.columns().every(function() {
+                    const column = this;
+                    const footer = $(column.footer());
+                    const input = footer.find('.column-filter');
+
+                    if (input.is('input')) {
+                        input.on('keyup change', function() {
+                            if (column.search() !== this.value) {
+                                column.search(this.value).draw();
+                            }
+                        });
+                    } else if (input.is('select')) {
+                        input.on('change', function() {
+                            const val = $.fn.dataTable.util.escapeRegex(this.value);
+                            column.search(val ? val : '', false, false).draw();
+                        });
+                    }
                 });
             })
             .catch(error => {
