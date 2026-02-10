@@ -104,16 +104,20 @@ def load_users():
     )
 
     # Load additional users from USERS env var
-    # Format: username1:password1,username2:password2
+    # Format: username1:password1:role1,username2:password2:role2
+    # Role is optional, defaults to 'user'. Valid roles: planner, mfgeng, customerservice, guest
     users_env = os.environ.get('USERS', '')
     if users_env:
         for user_pair in users_env.split(','):
-            if ':' in user_pair:
-                username, password = user_pair.strip().split(':', 1)
+            parts = user_pair.strip().split(':')
+            if len(parts) >= 2:
+                username = parts[0]
+                password = parts[1]
+                role = parts[2] if len(parts) > 2 else 'user'
                 users[username] = User(
                     username,
                     generate_password_hash(password),
-                    role='user'
+                    role=role
                 )
 
     return users
@@ -150,6 +154,7 @@ def load_persisted_schedule():
             current_schedule['stats'] = state.get('stats', {})
             current_schedule['reports'] = state.get('reports', {})
             current_schedule['generated_at'] = datetime.fromisoformat(state['generated_at']) if state.get('generated_at') else None
+            current_schedule['published_by'] = state.get('published_by', '')
             # Store serialized orders for the API
             current_schedule['serialized_orders'] = state.get('orders', [])
             print(f"[Startup] Loaded persisted schedule with {len(current_schedule.get('serialized_orders', []))} orders")
@@ -270,10 +275,12 @@ def index():
     files = get_uploaded_files()
     reports = get_available_reports()
 
+    can_generate = current_user.role in ('admin', 'planner')
     return render_template('index.html',
                            files=files,
                            reports=reports[:5],
-                           schedule=current_schedule)
+                           schedule=current_schedule,
+                           can_generate=can_generate)
 
 
 @app.route('/upload')
@@ -288,7 +295,8 @@ def upload_page():
 @login_required
 def schedule_page():
     """Schedule viewer page."""
-    return render_template('schedule.html', schedule=current_schedule)
+    can_generate = current_user.role in ('admin', 'planner')
+    return render_template('schedule.html', schedule=current_schedule, can_generate=can_generate)
 
 
 @app.route('/reports')
@@ -387,8 +395,12 @@ def upload_file():
 @app.route('/api/generate', methods=['POST'])
 @login_required
 def generate_schedule():
-    """Generate schedule from uploaded files in GCS."""
+    """Generate schedule from uploaded files in GCS. Only admin/planner roles."""
     global current_schedule
+
+    # Role check: only admin and planner can generate schedules
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can generate schedules.'}), 403
 
     try:
         # Download files from GCS to local temp directory
@@ -548,6 +560,7 @@ def generate_schedule():
             'orders': scheduled_orders,
             'baseline_orders': baseline_orders,
             'generated_at': generated_at,
+            'published_by': current_user.username,
             'reports': reports,
             'stats': {
                 'total_orders': len(scheduled_orders),
@@ -565,7 +578,8 @@ def generate_schedule():
             'orders': serialized_orders,
             'stats': current_schedule['stats'],
             'reports': reports,
-            'generated_at': generated_at.isoformat()
+            'generated_at': generated_at.isoformat(),
+            'published_by': current_user.username
         })
 
         flash(f'Schedule generated successfully! {len(scheduled_orders)} orders scheduled.', 'success')
@@ -645,7 +659,8 @@ def get_schedule():
         return jsonify({
             'orders': orders_data,
             'stats': fresh_stats,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None,
+            'published_by': current_schedule.get('published_by', '')
         })
 
     elif current_schedule.get('serialized_orders'):
@@ -672,7 +687,8 @@ def get_schedule():
         return jsonify({
             'orders': orders_data,
             'stats': current_schedule.get('stats', {}),
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None
+            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
+            'published_by': current_schedule.get('published_by', '')
         })
 
     else:

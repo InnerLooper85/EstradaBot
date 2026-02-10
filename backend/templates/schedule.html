@@ -6,13 +6,16 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-table"></i> Schedule</h2>
     <div>
+        <span id="publishedBy" class="text-muted me-2"></span>
         <span id="generatedAt" class="text-muted me-3"></span>
         <button class="btn btn-outline-primary me-2" onclick="refreshSchedule()">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
+        {% if can_generate %}
         <button class="btn btn-primary" onclick="generateSchedule()">
             <i class="bi bi-play-circle"></i> Generate New
         </button>
+        {% endif %}
     </div>
 </div>
 
@@ -81,10 +84,12 @@
         <div id="noSchedule" class="text-center py-5" style="display: none;">
             <i class="bi bi-calendar-x" style="font-size: 4rem; color: #dee2e6;"></i>
             <h4 class="mt-3 text-muted">No Schedule Generated</h4>
-            <p class="text-muted">Upload your input files and click "Generate Schedule" to view the schedule.</p>
+            <p class="text-muted">Upload your input files and generate a schedule to view it here.</p>
+            {% if can_generate %}
             <button class="btn btn-primary" onclick="generateSchedule()">
                 <i class="bi bi-play-circle"></i> Generate Schedule
             </button>
+            {% endif %}
         </div>
 
         <div id="scheduleTableContainer" style="display: none;">
@@ -186,10 +191,13 @@
                     $('#statHotList').text(data.stats.hot_list_count || 0);
                 }
 
-                // Update generated at timestamp
+                // Update generated at timestamp and publisher
                 if (data.generated_at) {
                     const date = new Date(data.generated_at);
                     $('#generatedAt').text('Generated: ' + date.toLocaleString());
+                }
+                if (data.published_by) {
+                    $('#publishedBy').html('<i class="bi bi-person-check"></i> Published by: <strong>' + data.published_by + '</strong>');
                 }
 
                 // Build table body

@@ -224,9 +224,11 @@
                         <i class="bi bi-play-circle"></i> Simulation
                     </a>
                     <hr class="mx-3">
+                    {% if current_user.is_authenticated and current_user.role in ['admin', 'planner'] %}
                     <a class="nav-link" href="#" onclick="generateSchedule(); return false;">
                         <i class="bi bi-gear"></i> Generate Schedule
                     </a>
+                    {% endif %}
                     <a class="nav-link {% if request.endpoint == 'update_log_page' %}active{% endif %}" href="/updates">
                         <i class="bi bi-journal-text"></i> Update Log
                     </a>
