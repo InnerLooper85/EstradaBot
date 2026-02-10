@@ -1,0 +1,271 @@
+{% extends 'base.html' %}
+
+{% block title %}Update Log - EstradaBot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-journal-text"></i> Update Log</h2>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.1</span>
+</div>
+
+<!-- Feedback Form -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-chat-dots"></i> Submit Feedback
+    </div>
+    <div class="card-body">
+        <form id="feedbackForm">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="feedbackCategory" class="form-label">Category</label>
+                    <select class="form-select" id="feedbackCategory" required>
+                        <option value="">Select...</option>
+                        <option value="Bug Report">Bug Report</option>
+                        <option value="Feature Request">Feature Request</option>
+                        <option value="Data Issue">Data Issue</option>
+                        <option value="UI/UX Improvement">UI/UX Improvement</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="feedbackPriority" class="form-label">Priority</label>
+                    <select class="form-select" id="feedbackPriority">
+                        <option value="Low">Low</option>
+                        <option value="Medium" selected>Medium</option>
+                        <option value="High">High</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="feedbackPage" class="form-label">Related Page (optional)</label>
+                    <select class="form-select" id="feedbackPage">
+                        <option value="">None</option>
+                        <option value="Dashboard">Dashboard</option>
+                        <option value="Upload">Upload Files</option>
+                        <option value="Schedule">Schedule</option>
+                        <option value="Reports">Reports</option>
+                        <option value="Simulation">Simulation</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="feedbackMessage" class="form-label">Description</label>
+                <textarea class="form-control" id="feedbackMessage" rows="3" required
+                    placeholder="Describe the issue, suggestion, or feedback..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send"></i> Submit Feedback
+            </button>
+        </form>
+        <div id="feedbackSuccess" class="alert alert-success mt-3" style="display: none;">
+            <i class="bi bi-check-circle"></i> Thank you! Your feedback has been submitted.
+        </div>
+    </div>
+</div>
+
+<!-- Recent Feedback (admin only) -->
+{% if current_user.role == 'admin' %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-inbox"></i> Submitted Feedback</span>
+        <span class="badge bg-secondary" id="feedbackCount">0</span>
+    </div>
+    <div class="card-body">
+        <div id="feedbackList">
+            <p class="text-muted text-center py-3">Loading feedback...</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Update Log Entries -->
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-clock-history"></i> Version History
+    </div>
+    <div class="card-body">
+        <!-- MVP 1.1 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.1</span>
+                <small class="text-muted ms-2">February 2026 - User Feedback Release</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>BLAST Time Fix:</strong> First BLAST now starts at 5:30 AM (30-minute handover)
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Pegging Report Removed:</strong> Turnaround calculation simplified (uses WO Creation Date for all orders)
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Data Scrubbing:</strong> Sensitive columns (Unit Price, Customer Address) automatically stripped on upload
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Serial Number Column:</strong> Added to Schedule view and all exported reports
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Column Filtering:</strong> Per-column search and dropdown filters on the Schedule page
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Version Header:</strong> Version badge shown in navbar with Update Log page
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>User Feedback Form:</strong> Submit bug reports, feature requests, and suggestions
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Rubber Type Alternation:</strong> XE-HR-XE-HR BLAST sequence optimization within priority tiers
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Published Schedule:</strong> Planner/Admin can publish schedules; regular users see the published version
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>4/5-Day Toggle:</strong> Both 4-day (Mon-Thu) and 5-day (Mon-Fri) schedules pre-generated with toggle switch
+                </li>
+            </ul>
+        </div>
+
+        <!-- MVP 1.0 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-secondary">MVP 1.0</span>
+                <small class="text-muted ms-2">January 2026 - Initial Release</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>DES Scheduling Engine:</strong> Pipeline-based Discrete Event Simulation
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>5-Tier Priority System:</strong> Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Core Management:</strong> Automatic core assignment with lifecycle tracking
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Hot List Prioritization:</strong> Impact analysis showing delayed orders
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Excel Reports:</strong> Master Schedule, BLAST Schedule, Core Oven, Pending Core, Impact Analysis
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Visual Simulation:</strong> Factory floor animation with real-time order tracking
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>GCS Cloud Storage:</strong> Persistent file storage and schedule state
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>User Authentication:</strong> Login system with admin and user roles
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Feedback form submission
+    document.getElementById('feedbackForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const feedback = {
+            category: document.getElementById('feedbackCategory').value,
+            priority: document.getElementById('feedbackPriority').value,
+            page: document.getElementById('feedbackPage').value,
+            message: document.getElementById('feedbackMessage').value
+        };
+
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(feedback)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('feedbackSuccess').style.display = 'block';
+                document.getElementById('feedbackForm').reset();
+                setTimeout(() => {
+                    document.getElementById('feedbackSuccess').style.display = 'none';
+                }, 5000);
+                // Refresh feedback list if admin
+                if (document.getElementById('feedbackList')) {
+                    loadFeedback();
+                }
+            } else {
+                alert('Error submitting feedback: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+    });
+
+    // Load feedback list (admin only)
+    {% if current_user.role == 'admin' %}
+    function loadFeedback() {
+        fetch('/api/feedback')
+            .then(response => response.json())
+            .then(data => {
+                const list = document.getElementById('feedbackList');
+                const count = document.getElementById('feedbackCount');
+
+                if (!data.feedback || data.feedback.length === 0) {
+                    list.innerHTML = '<p class="text-muted text-center py-3">No feedback submitted yet.</p>';
+                    count.textContent = '0';
+                    return;
+                }
+
+                count.textContent = data.feedback.length;
+                let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr>' +
+                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Page</th><th>Message</th>' +
+                    '</tr></thead><tbody>';
+
+                data.feedback.forEach(fb => {
+                    const date = new Date(fb.submitted_at).toLocaleDateString('en-US', {
+                        month: '2-digit', day: '2-digit', year: '2-digit',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                    const priorityClass = fb.priority === 'High' ? 'text-danger' :
+                                         fb.priority === 'Medium' ? 'text-warning' : 'text-muted';
+                    html += `<tr>
+                        <td class="small">${date}</td>
+                        <td>${fb.username || '-'}</td>
+                        <td><span class="badge bg-secondary">${fb.category}</span></td>
+                        <td class="${priorityClass}">${fb.priority}</td>
+                        <td>${fb.page || '-'}</td>
+                        <td>${fb.message.substring(0, 100)}${fb.message.length > 100 ? '...' : ''}</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+                list.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error loading feedback:', error);
+                document.getElementById('feedbackList').innerHTML =
+                    '<p class="text-danger text-center py-3">Failed to load feedback.</p>';
+            });
+    }
+
+    // Load on page load
+    loadFeedback();
+    {% endif %}
+</script>
+{% endblock %}
