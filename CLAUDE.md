@@ -171,7 +171,7 @@ gcloud run deploy estradabot --source . --region us-central1 --allow-unauthentic
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.1
+**Current Version:** MVP 1.2
 
 When merging changes to `master` that will be deployed to production, you MUST:
 
