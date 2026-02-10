@@ -458,6 +458,8 @@ class PartState:
     promise_date: Optional[datetime] = None
     creation_date: Optional[datetime] = None
     basic_finish_date: Optional[datetime] = None  # From SAP - used for On-Time calculation
+    serial_number: Optional[str] = None  # From Sales Order report
+
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
 
@@ -932,6 +934,7 @@ class DESScheduler:
                         promise_date=order.get('promise_date'),
                         creation_date=order.get('creation_date') or order.get('created_on'),
                         basic_finish_date=order.get('basic_finish_date'),
+                        serial_number=order.get('serial_number'),
                         priority=order.get('priority', 'Normal')
                     )
 
@@ -1232,7 +1235,8 @@ class DESScheduler:
                 on_time=on_time,
                 creation_date=part.creation_date,
                 planned_desma=part.planned_desma,
-                priority=part.priority
+                priority=part.priority,
+                serial_number=part.serial_number
             )
 
             self.scheduled_orders.append(scheduled)

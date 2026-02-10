@@ -29,6 +29,7 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
     for order in scheduled_orders:
         data.append({
             'WO#': order.wo_number,
+            'Serial Number': getattr(order, 'serial_number', None) or '',
             'Part Number': order.part_number,
             'Description': order.description[:50] if order.description else '',
             'Customer': order.customer,

@@ -524,6 +524,7 @@ def generate_schedule():
 
             serialized_orders.append({
                 'wo_number': order.wo_number or '',
+                'serial_number': order.serial_number or '',
                 'part_number': order.part_number or '',
                 'description': order.description or '',
                 'customer': order.customer or '',
@@ -613,6 +614,7 @@ def get_schedule():
 
             order_dict = {
                 'wo_number': order.wo_number or '',
+                'serial_number': order.serial_number or '',
                 'part_number': order.part_number or '',
                 'description': order.description or '',
                 'customer': order.customer or '',
@@ -652,6 +654,7 @@ def get_schedule():
         for order in current_schedule['serialized_orders']:
             orders_data.append({
                 'wo_number': order.get('wo_number', ''),
+                'serial_number': order.get('serial_number', ''),
                 'part_number': order.get('part_number', ''),
                 'description': order.get('description', ''),
                 'customer': order.get('customer', ''),

@@ -226,6 +226,7 @@ class ScheduledOrder:
     creation_date: datetime = None
     planned_desma: str = None  # Which Desma machine is assigned
     priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
+    serial_number: str = None  # From Sales Order report
 
 
 @dataclass
