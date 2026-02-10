@@ -872,95 +872,129 @@ class DESScheduler:
 
         return hot_list_asap + hot_list_dated + rework_orders + normal_orders + cavo_orders
 
+    def _get_rubber_type_for_order(self, order_info: Dict) -> Optional[str]:
+        """Get the effective rubber type for an order (including hot list override)."""
+        order = order_info['order']
+        part_data = order_info['part_data']
+        wo_number = order.get('wo_number')
+
+        rubber_type = part_data.get('rubber_type') if part_data else None
+        if wo_number in self.hot_list_lookup:
+            hot_list_entry = self.hot_list_lookup[wo_number]
+            rubber_override = hot_list_entry.get('rubber_override')
+            if rubber_override:
+                rubber_type = rubber_override
+        return rubber_type
+
     def _schedule_blast_arrivals(self, orders: List[Dict], start_date: datetime):
-        """Schedule BLAST arrivals at takt intervals, checking core availability."""
+        """
+        Schedule BLAST arrivals at takt intervals, checking core availability.
+        Within the same priority tier, alternates between rubber types (XE/HR)
+        when possible. XD/XR orders are scheduled on Desma 5 (flex).
+        """
         takt_minutes = self.work_config.takt_time_minutes
         current_slot = start_date
+        last_rubber_type = None  # Track for alternation
 
         remaining_orders = orders.copy()
 
         while remaining_orders:
-            # Find an order whose core is available at this slot
+            # Find an order whose core is available at this slot.
+            # Within the same priority tier, prefer alternating rubber types.
             scheduled_this_slot = False
 
+            # Determine the priority tier of the first remaining order
+            first_priority = remaining_orders[0]['order'].get('priority', 'Normal')
+
+            # Collect candidates in the same priority tier with available cores
+            candidates = []  # List of (index, order_info, core, rubber_type)
             for i, order_info in enumerate(remaining_orders):
+                if order_info['order'].get('priority', 'Normal') != first_priority:
+                    break  # Stop at the boundary of the next priority tier
+
+                core = self._find_available_core(order_info['core_number'], current_slot)
+                if core:
+                    rubber_type = self._get_rubber_type_for_order(order_info)
+                    candidates.append((i, order_info, core, rubber_type))
+
+            # If no candidates in the top priority tier, check remaining orders
+            if not candidates:
+                for i, order_info in enumerate(remaining_orders):
+                    core = self._find_available_core(order_info['core_number'], current_slot)
+                    if core:
+                        rubber_type = self._get_rubber_type_for_order(order_info)
+                        candidates.append((i, order_info, core, rubber_type))
+                        break  # Take the first available from any tier
+
+            if candidates:
+                # Select the best candidate: prefer different rubber type from last
+                selected = candidates[0]  # Default: first available
+                if last_rubber_type and len(candidates) > 1:
+                    for candidate in candidates:
+                        if candidate[3] and candidate[3] != last_rubber_type:
+                            selected = candidate
+                            break
+
+                i, order_info, core, rubber_type = selected
                 order = order_info['order']
                 core_number = order_info['core_number']
                 part_data = order_info['part_data']
                 wo_number = order.get('wo_number')
 
-                # Check core availability
-                core = self._find_available_core(core_number, current_slot)
+                # Create part state
+                part_id = self._generate_part_id()
+                part_number = order.get('part_number', '')
+                is_reline = part_number.startswith('XN')
 
-                if core:
-                    # Create part state
-                    part_id = self._generate_part_id()
-                    part_number = order.get('part_number', '')
-                    is_reline = part_number.startswith('XN')
+                # Calculate BLAST time - account for rework lead time
+                blast_time = current_slot
+                is_rework = order.get('is_rework', False)
+                rework_lead_time_hours = order.get('rework_lead_time_hours', 0)
 
-                    # Determine rubber type - check for hot list override first
-                    rubber_type = part_data.get('rubber_type') if part_data else None
-                    if wo_number in self.hot_list_lookup:
-                        hot_list_entry = self.hot_list_lookup[wo_number]
-                        rubber_override = hot_list_entry.get('rubber_override')
-                        if rubber_override:
-                            rubber_type = rubber_override
-
-                    # Calculate BLAST time - account for rework lead time
-                    blast_time = current_slot
-                    is_rework = order.get('is_rework', False)
-                    rework_lead_time_hours = order.get('rework_lead_time_hours', 0)
-
-                    if is_rework and rework_lead_time_hours > 0:
-                        # Delay BLAST by rework lead time (rubber removal + prep)
-                        blast_time = self.work_config.advance_time(
-                            current_slot, rework_lead_time_hours
-                        )
-
-                    part_state = PartState(
-                        part_id=part_id,
-                        wo_number=wo_number,
-                        part_number=part_number,
-                        description=order.get('description', ''),
-                        customer=order.get('customer', ''),
-                        is_reline=is_reline,
-                        rubber_type=rubber_type,
-                        core_number=core_number,
-                        core_suffix=core['suffix'],
-                        injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
-                        cure_time=(part_data.get('cure_time') if part_data else None) or 1.5,
-                        quench_time=(part_data.get('quench_time') if part_data else None) or 0.75,
-                        disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
-                        promise_date=order.get('promise_date'),
-                        creation_date=order.get('creation_date') or order.get('created_on'),
-                        basic_finish_date=order.get('basic_finish_date'),
-                        serial_number=order.get('serial_number'),
-                        priority=order.get('priority', 'Normal')
+                if is_rework and rework_lead_time_hours > 0:
+                    blast_time = self.work_config.advance_time(
+                        current_slot, rework_lead_time_hours
                     )
 
-                    self.parts[part_id] = part_state
+                part_state = PartState(
+                    part_id=part_id,
+                    wo_number=wo_number,
+                    part_number=part_number,
+                    description=order.get('description', ''),
+                    customer=order.get('customer', ''),
+                    is_reline=is_reline,
+                    rubber_type=rubber_type,
+                    core_number=core_number,
+                    core_suffix=core['suffix'],
+                    injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
+                    cure_time=(part_data.get('cure_time') if part_data else None) or 1.5,
+                    quench_time=(part_data.get('quench_time') if part_data else None) or 0.75,
+                    disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
+                    promise_date=order.get('promise_date'),
+                    creation_date=order.get('creation_date') or order.get('created_on'),
+                    basic_finish_date=order.get('basic_finish_date'),
+                    serial_number=order.get('serial_number'),
+                    priority=order.get('priority', 'Normal')
+                )
 
-                    # Assign core (use blast_time for core return calculation)
-                    self._assign_core(core_number, core['suffix'],
-                                     wo_number, blast_time, part_data)
+                self.parts[part_id] = part_state
+                last_rubber_type = rubber_type
 
-                    # Schedule BLAST arrival event
-                    event = SimEvent(
-                        time=blast_time,
-                        event_type=EventType.BLAST_ARRIVAL,
-                        part_id=part_id,
-                        station='BLAST'
-                    )
-                    heapq.heappush(self.event_queue, event)
+                # Assign core (use blast_time for core return calculation)
+                self._assign_core(core_number, core['suffix'],
+                                 wo_number, blast_time, part_data)
 
-                    remaining_orders.pop(i)
-                    scheduled_this_slot = True
-                    break
-                else:
-                    # Core not available - track if this is a hot list order
-                    if wo_number in self.hot_list_lookup:
-                        # Don't add to shortage list yet - it may be scheduled later
-                        pass
+                # Schedule BLAST arrival event
+                event = SimEvent(
+                    time=blast_time,
+                    event_type=EventType.BLAST_ARRIVAL,
+                    part_id=part_id,
+                    station='BLAST'
+                )
+                heapq.heappush(self.event_queue, event)
+
+                remaining_orders.pop(i)
+                scheduled_this_slot = True
 
             if scheduled_this_slot:
                 # Advance to next takt slot
