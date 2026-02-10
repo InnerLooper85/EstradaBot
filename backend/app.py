@@ -307,6 +307,13 @@ def simulation_page():
     return render_template('simulation.html')
 
 
+@app.route('/updates')
+@login_required
+def update_log_page():
+    """Update log and feedback page."""
+    return render_template('update_log.html')
+
+
 # ============== API Routes ==============
 
 @app.route('/api/upload', methods=['POST'])
@@ -667,6 +674,56 @@ def get_reports():
     for r in reports:
         r['modified'] = r['modified'].isoformat()
     return jsonify(reports)
+
+
+@app.route('/api/feedback', methods=['POST'])
+@login_required
+def submit_feedback():
+    """Submit user feedback."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    message = data.get('message', '').strip()
+    category = data.get('category', '').strip()
+
+    if not message:
+        return jsonify({'error': 'Message is required'}), 400
+    if not category:
+        return jsonify({'error': 'Category is required'}), 400
+
+    feedback_entry = {
+        'username': current_user.username,
+        'category': category,
+        'priority': data.get('priority', 'Medium'),
+        'page': data.get('page', ''),
+        'message': message,
+        'submitted_at': datetime.now().isoformat()
+    }
+
+    try:
+        gcs_storage.save_feedback(feedback_entry)
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"[ERROR] Failed to save feedback: {e}")
+        return jsonify({'error': 'Failed to save feedback'}), 500
+
+
+@app.route('/api/feedback')
+@login_required
+def get_feedback():
+    """Get all feedback (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        feedback = gcs_storage.load_feedback()
+        # Return newest first
+        feedback.reverse()
+        return jsonify({'feedback': feedback})
+    except Exception as e:
+        print(f"[ERROR] Failed to load feedback: {e}")
+        return jsonify({'feedback': []})
 
 
 @app.route('/api/simulation-data')

@@ -173,6 +173,7 @@
         <div class="container-fluid">
             <a class="navbar-brand" href="/">
                 <i class="bi bi-calendar-check"></i> EstradaBot
+                <span class="badge bg-info ms-1" style="font-size: 0.55rem; vertical-align: middle;">MVP 1.1</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -224,7 +225,10 @@
                     </a>
                     <hr class="mx-3">
                     <a class="nav-link" href="#" onclick="generateSchedule(); return false;">
-                        <i class="bi bi-play-circle"></i> Generate Schedule
+                        <i class="bi bi-gear"></i> Generate Schedule
+                    </a>
+                    <a class="nav-link {% if request.endpoint == 'update_log_page' %}active{% endif %}" href="/updates">
+                        <i class="bi bi-journal-text"></i> Update Log
                     </a>
                 </nav>
             </div>
