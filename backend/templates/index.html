@@ -5,9 +5,11 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-speedometer2"></i> Dashboard</h2>
+    {% if can_generate %}
     <button class="btn btn-primary" onclick="generateSchedule()">
         <i class="bi bi-play-circle"></i> Generate Schedule
     </button>
+    {% endif %}
 </div>
 
 <!-- Stats Cards -->
@@ -72,16 +74,6 @@
                             <td class="text-end">
                                 {% if files.shop_dispatch %}
                                     <span class="text-success"><i class="bi bi-check-circle"></i> {{ files.shop_dispatch.name[:30] }}...</span>
-                                {% else %}
-                                    <span class="text-muted"><i class="bi bi-dash-circle"></i> Optional</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><i class="bi bi-file-earmark-excel text-success"></i> Pegging Report</td>
-                            <td class="text-end">
-                                {% if files.pegging_report %}
-                                    <span class="text-success"><i class="bi bi-check-circle"></i> {{ files.pegging_report.name[:30] }}...</span>
                                 {% else %}
                                     <span class="text-muted"><i class="bi bi-dash-circle"></i> Optional</span>
                                 {% endif %}
@@ -227,9 +219,11 @@
             <a href="/upload" class="btn btn-outline-primary me-2">
                 <i class="bi bi-cloud-upload"></i> Upload Files
             </a>
+            {% if can_generate %}
             <button class="btn btn-primary" onclick="generateSchedule()">
                 <i class="bi bi-play-circle"></i> Generate Schedule
             </button>
+            {% endif %}
         </div>
     </div>
 </div>

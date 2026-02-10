@@ -1,26 +1,29 @@
 # Stator Production Scheduling Application - Implementation Plan
 
-**Document Version:** 1.2
+**Document Version:** 1.3
 **Date:** February 1, 2026
 **Last Updated:** February 4, 2026
+**Current Product Version:** MVP 1.0
+**Next Release:** MVP 1.1 (User Feedback Incorporation)
 **Estimated Total Timeline:** 8-12 weeks
 
 ---
 
 ## Current Status (as of February 4, 2026)
 
-### Implementation Summary
+### Implementation Summary — MVP 1.0 (Baseline)
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Phase 1: Data Foundation | ✅ COMPLETE | All parsers implemented |
-| Phase 2: Core Scheduling Algorithm | ✅ COMPLETE | DES scheduler (pipeline-based, not queue-based) |
-| Phase 3: Optimization Logic | ⚠️ MOSTLY COMPLETE | Hot list & rework done; rubber grouping not done |
-| Phase 4: User Interface | ✅ COMPLETE | Flask web app with Bootstrap 5 UI |
-| Phase 5: Visual Simulation | ✅ COMPLETE | Animated factory floor simulation |
-| Phase 6: Reporting & Export | ⚠️ MOSTLY COMPLETE | Core reports done; utilization/alerts not done |
-| Phase 7: Testing & Refinement | ⚠️ IN PROGRESS | Manual testing ongoing; no automated tests |
-| Deployment | ✅ COMPLETE | Live on Google Cloud Run with GCS storage |
+| Phase                              | Status             | Notes                                            |
+| ---------------------------------- | ------------------ | ------------------------------------------------ |
+| Phase 1: Data Foundation           | ✅ COMPLETE         | All parsers implemented                          |
+| Phase 2: Core Scheduling Algorithm | ✅ COMPLETE         | DES scheduler (pipeline-based, not queue-based)  |
+| Phase 3: Optimization Logic        | ⚠️ MOSTLY COMPLETE | Hot list & rework done; rubber grouping not done |
+| Phase 4: User Interface            | ✅ COMPLETE         | Flask web app with Bootstrap 5 UI                |
+| Phase 5: Visual Simulation         | ✅ COMPLETE         | Animated factory floor simulation                |
+| Phase 6: Reporting & Export        | ⚠️ MOSTLY COMPLETE | Core reports done; utilization/alerts not done   |
+| Phase 7: Testing & Refinement      | ⚠️ IN PROGRESS     | Manual testing ongoing; no automated tests       |
+| Deployment                         | ✅ COMPLETE         | Live on Google Cloud Run with GCS storage        |
+| **MVP 1.1: User Feedback**         | ⚠️ **IN PROGRESS** | 2 of 11 items complete — See Phase 8 below       |
 
 ### Architecture Notes
 
@@ -2001,6 +2004,388 @@ async function generateMasterScheduleReport(schedule) {
 | Development timeline slips | Medium | Medium | Phased approach allows flexibility, prioritize core features |
 | Key developer unavailable | Low | High | Documentation, code reviews, knowledge sharing |
 | Insufficient testing resources | Medium | Medium | Automate testing, involve users in UAT |
+
+---
+
+## Phase 8: MVP 1.1 — User Feedback Incorporation 🆕
+
+> **Status:** COMPLETE (11 of 11 items complete)
+> **Source:** Initial user feedback collected February 4, 2026 from Planning Team, Customer Service Team, and Product Owner
+> **Target Version:** MVP 1.1
+> **Related Documents:**
+> - `planning_algorithm_logic.md` — Algorithm rules and flagged items
+> - `data_fields_reference.md` — All data fields used from uploaded reports
+> - `MVP_2.0_Planning.md` — Future requirements and clarifying questions
+
+---
+
+### 8.1 HIGH PRIORITY — Immediate Implementation
+
+These items should be completed ASAP before continuing with other original implementation plan items.
+
+---
+
+#### 8.1.1 Fix First BLAST Time (Planning Team Feedback)
+
+**Priority:** HIGH | **Effort:** Small | **Status:** ✅ COMPLETE
+
+**Requirement:** The first blast time on each shift should be 5:30 AM (day shift) and 5:30 PM (night shift), not 5:20.
+
+**Current Behavior:** 20-minute handover period (5:00-5:20 day, 17:00-17:20 night) → first blast at 5:20/17:20.
+
+**Change Required:**
+- In `backend/algorithms/des_scheduler.py`, `WorkScheduleConfig`:
+  - Change `handover_minutes` from 20 to 30
+  - Day shift handover: 5:00 AM - 5:30 AM (first blast at 5:30)
+  - Night shift handover: 5:00 PM - 5:30 PM (first blast at 17:30)
+
+**Files Affected:**
+- `backend/algorithms/des_scheduler.py` — `WorkScheduleConfig` class, handover period definition
+
+**Testing:**
+- Verify first BLAST time in generated schedule is 5:30 AM
+- Verify night shift first BLAST is 5:30 PM
+- Verify break schedule is unaffected
+- Verify total shift capacity calculation still correct
+
+---
+
+#### 8.1.2 Rubber Type Alternation in BLAST Sequence (Planning Team Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+**⚠️ FLAGGED RULE — See `planning_algorithm_logic.md` for rationale**
+
+**Requirement:** When possible, alternate between XE and HR rubber types in the BLAST sequence. Do NOT schedule the same rubber type back-to-back unless no alternatives are available.
+
+**Clarified Behavior:**
+- The BLAST arrival sequence should alternate: XE → HR → XE → HR (when possible)
+- Individual Desma machines remain dedicated to their rubber type (Desma 1-2 = HR, Desma 3-4 = XE)
+- XD and XR rubber types should be planned on Desma 5 (flex machine)
+- XD and XR orders should be grouped on the same day but spaced out with HR or XE orders between them
+- This rule is FLAGGED: it may not ultimately matter and could be detrimental. Implementing to encourage user uptake. Subject to future review.
+
+**Change Required:**
+- Modify `_schedule_blast_arrivals()` in `des_scheduler.py`:
+  - After priority sorting, when selecting the next order for a takt slot, prefer an order with a different rubber type than the previous order
+  - Within the same priority tier, select alternating rubber types
+  - Never break priority ordering (Hot-ASAP always first, etc.) — alternation is a tiebreaker within the same priority tier
+  - For XD/XR orders: prefer scheduling them on the same day, interleaved with HR/XE
+
+**Files Affected:**
+- `backend/algorithms/des_scheduler.py` — `_schedule_blast_arrivals()` method
+- `planning_algorithm_logic.md` — Document this rule with flag
+
+**Testing:**
+- Verify BLAST sequence alternates XE/HR when both are available
+- Verify priority ordering is never violated
+- Verify XD/XR orders land on Desma 5
+- Verify XD/XR orders cluster on same day with spacing
+- Test with all-HR or all-XE order sets (should not error)
+
+---
+
+#### 8.1.3 Eliminate Pegging Report (Planning Team Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+
+**Requirement:** Remove the Pegging Report from the process entirely. Remove it as a required upload, remove the "Actual Start Date" field, and any derived fields.
+
+**Impact Analysis:**
+
+| Impact Area | Current Behavior | After Change |
+|---|---|---|
+| Upload page | Pegging Report listed as optional upload | Remove from upload page entirely |
+| Data loader | `PeggingParser` loads actual_start_date | Skip pegging report loading |
+| Turnaround (new stators) | Uses `actual_start_date` from pegging | Falls back to `creation_date` (same as relines) |
+| Turnaround (relines) | Uses `creation_date` | No change |
+| Master Schedule report | "Actual Start Date" column displayed | Remove column |
+| Schedule JSON API | `actual_start_date` field in response | Remove field |
+| ScheduledOrder dataclass | Has `actual_start_date` attribute | Remove attribute |
+| DES Scheduler | Uses `actual_start_date` for new stator turnaround calc | Use `creation_date` for all orders |
+
+**Files Affected:**
+- `backend/templates/upload.html` — Remove Pegging Report row from file types table and current files display
+- `backend/data_loader.py` — Remove pegging report loading step, remove `actual_start_dates` merge logic
+- `backend/parsers/pegging_parser.py` — File can be deleted or deprecated
+- `backend/algorithms/des_scheduler.py` — Remove `actual_start_date` references in `_collect_results()`
+- `backend/algorithms/scheduler.py` — Remove `actual_start_date` from `ScheduledOrder` dataclass
+- `backend/app.py` — Remove `actual_start_date` from schedule JSON serialization, remove pegging from file category detection
+- `backend/exporters/excel_exporter.py` — Remove "Actual Start Date" column from Master Schedule report
+- `backend/templates/index.html` — Remove any pegging report file status references
+
+**Testing:**
+- Verify upload page no longer shows Pegging Report
+- Verify schedule generates successfully without pegging file
+- Verify turnaround calculation uses creation_date for all orders
+- Verify Master Schedule report has no Actual Start Date column
+- Verify no errors when pegging file is absent
+
+---
+
+#### 8.1.4 Schedule Page Column Filtering (Customer Service Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+
+**Requirement:** Add per-column filtering capability to the schedule page, alongside the existing sorting and global search box. Leave the current search box functionality as-is.
+
+**Change Required:**
+- Add a filter row below the header row in the DataTable
+- Each column gets a filter input:
+  - Text columns (WO#, Part Number, Customer, Core): text input search
+  - Categorical columns (Rubber, Priority, Status): dropdown select filter
+  - Date columns (BLAST Date, Completion, Promise Date): text input (filter by date string)
+  - Numeric columns (Turnaround): text input with numeric filtering
+- Filters work in combination (AND logic)
+- Existing global search box remains unchanged
+
+**Files Affected:**
+- `backend/templates/schedule.html` — Add filter row HTML, add DataTables column filter initialization JS
+
+**Testing:**
+- Verify each column can be independently filtered
+- Verify filters work together (AND logic)
+- Verify global search still works alongside column filters
+- Verify sorting still works on all columns
+- Verify Excel export respects active filters
+
+---
+
+#### 8.1.5 Add Serial Number Column (Customer Service Feedback)
+
+**Priority:** HIGH | **Effort:** Small | **Status:** ✅ COMPLETE
+
+**Requirement:** Add "Serial Number" column (from Open Sales Order report) to the schedule page, Master Schedule report, and Impact Analysis report.
+
+**Current State:** `serial_number` is already parsed by `sales_order_parser.py` but not passed through to the schedule output or displayed.
+
+**Change Required:**
+- Pass `serial_number` through the data pipeline: orders dict → DES scheduler → ScheduledOrder → JSON API → DataTable
+- Add column to schedule page DataTable (position: after WO#)
+- Add column to Master Schedule Excel report
+- Add column to Impact Analysis "Delayed Orders" sheet
+
+**Files Affected:**
+- `backend/algorithms/scheduler.py` — Add `serial_number` field to `ScheduledOrder`
+- `backend/algorithms/des_scheduler.py` — Pass `serial_number` through `PartState` and `_collect_results()`
+- `backend/app.py` — Include `serial_number` in schedule JSON serialization
+- `backend/templates/schedule.html` — Add Serial Number column to DataTable
+- `backend/exporters/excel_exporter.py` — Add Serial Number column to Master Schedule
+- `backend/exporters/impact_analysis_exporter.py` — Add Serial Number column to Delayed Orders sheet
+
+**Testing:**
+- Verify Serial Number appears on schedule page
+- Verify it appears in downloaded Master Schedule report
+- Verify it appears in Impact Analysis report
+- Verify filtering/sorting works on the new column
+
+---
+
+#### 8.1.6 Version Header and Update Log (Product Owner Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+
+**Requirement:**
+1. Display version number and last update date in the site header next to "EstradaBot"
+2. Create an "Update Log" page describing changes in each revision
+3. Add "Update Log" link at the bottom of the left navigation menu
+
+**Version Convention:**
+- Format: `MVP X.Y` (e.g., `MVP 1.1`)
+- These current changes constitute MVP 1.1
+- Date should be the date changes are deployed
+- A rule/process should be established to update version on each release
+
+**Change Required:**
+- Update navbar brand in `base.html`: "EstradaBot `MVP 1.1` | Updated: MM/DD/YYYY"
+- Create `backend/templates/update_log.html` page with revision history
+- Add `/update-log` route in `app.py`
+- Add "Update Log" nav link at bottom of sidebar in `base.html`
+- Create a `VERSION` file or constant in `app.py` to centralize version info
+- Document process: on each deployment, update version string and add entry to update log
+
+**Files Affected:**
+- `backend/templates/base.html` — Navbar brand text, sidebar nav link
+- `backend/templates/update_log.html` — New template (includes feedback form, see 8.1.7)
+- `backend/app.py` — New route, version constant
+
+**Testing:**
+- Verify version and date appear in header on all pages
+- Verify Update Log page loads and displays revision history
+- Verify Update Log link appears in sidebar navigation
+
+---
+
+#### 8.1.7 User Feedback Form (Product Owner Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+
+**Requirement:**
+1. Create a user feedback form at the top of the Update Log page
+2. Add a "User Feedback" link in the main navigation (goes to same page as Update Log)
+3. Store feedback submissions on the cloud server (GCS)
+4. Implement easy workflow to download feedback for future sessions
+
+**Change Required:**
+- Add feedback form to top of `update_log.html` (fields: username auto-filled, category dropdown, description text area, priority select)
+- Create `/api/feedback` POST endpoint to save feedback as JSON to GCS (`gs://estradabot-files/feedback/`)
+- Create `/api/feedback` GET endpoint to list/download feedback (admin only)
+- Add "User Feedback" nav link in sidebar (links to `/update-log#feedback`)
+- Admin can download all feedback as CSV/JSON from the Update Log page
+
+**Files Affected:**
+- `backend/templates/update_log.html` — Feedback form UI
+- `backend/app.py` — `/api/feedback` endpoints, `/update-log` route
+- `backend/gcs_storage.py` — Feedback file storage/retrieval methods
+- `backend/templates/base.html` — Add "User Feedback" nav link
+
+**Testing:**
+- Verify feedback form submits successfully
+- Verify feedback is stored in GCS
+- Verify admin can view/download all feedback
+- Verify non-admin users can submit but not view others' feedback
+
+---
+
+#### 8.1.8 Data Scrubbing — Unit Price & Customer Address (Product Owner Feedback)
+
+**Priority:** HIGH | **Effort:** Small | **Status:** ✅ COMPLETE
+
+**Requirement:** Scrub "Unit Price" and "Customer Address" columns from any uploaded Open Sales Order reports upon upload, before storage in GCS. These columns should never be stored.
+
+**Change Required:**
+- In the `/api/upload` endpoint in `app.py`:
+  - After receiving an Open Sales Order file, before uploading to GCS:
+    - Open the Excel file with openpyxl
+    - Remove "Unit Price" and "Customer Address" columns (and any similar column names like "Net Price", "Address")
+    - Save the modified file
+    - Upload the scrubbed version to GCS
+- Log which columns were scrubbed for audit trail
+
+**Files Affected:**
+- `backend/app.py` — `/api/upload` endpoint, add scrubbing logic for sales order files
+
+**Testing:**
+- Upload a sales order file containing Unit Price and Customer Address columns
+- Download the file from GCS and verify those columns are removed
+- Verify schedule generation still works with scrubbed file
+- Verify no errors if the columns don't exist in an uploaded file
+
+---
+
+#### 8.1.9 Schedule Mode Toggle — 4 vs 5 Day Work Week (Product Owner Feedback)
+
+**Priority:** HIGH | **Effort:** Large | **Status:** ✅ COMPLETE
+
+**Requirement:** Add an interface between the summary stats and the schedule table allowing users to switch between 4-day and 5-day work week schedules. Both schedules should be pre-generated when the user clicks "Generate."
+
+**Change Required:**
+
+*Backend:*
+- Modify `/api/generate` to run the scheduler twice: once with 4-day week, once with 5-day week
+- Store both schedule results in GCS state (keyed by mode: `schedule_4day`, `schedule_5day`)
+- Modify `/api/schedule` to accept a `?mode=4day` or `?mode=5day` query parameter
+- Generate reports for both modes (or for the published mode only)
+
+*Frontend:*
+- Add a toggle/button group between the stats cards and the schedule table on `schedule.html`
+- Two options: "4-Day Week (Mon-Thu)" and "5-Day Week (Mon-Fri)"
+- Toggling fetches the alternate schedule data and refreshes the table and stats
+- Visually indicate which mode is currently displayed
+- Default to 4-day (current behavior)
+
+*Scheduler:*
+- Make `WorkScheduleConfig.work_days` configurable (currently hardcoded to `[0,1,2,3]`)
+- Accept a `work_days` parameter: 4-day = `[0,1,2,3]`, 5-day = `[0,1,2,3,4]`
+
+**Files Affected:**
+- `backend/algorithms/des_scheduler.py` — Parameterize `work_days` in `WorkScheduleConfig`
+- `backend/app.py` — Dual schedule generation, mode-aware API endpoints
+- `backend/gcs_storage.py` — Store/retrieve schedules by mode
+- `backend/templates/schedule.html` — Toggle UI, mode-aware data loading
+
+**Testing:**
+- Verify both 4-day and 5-day schedules are generated
+- Verify toggling switches the displayed data
+- Verify stats update to reflect the selected mode
+- Verify 5-day schedule includes Friday orders
+- Verify mode selection persists during session
+
+---
+
+#### 8.1.10 Published Schedule Concept (Product Owner Feedback)
+
+**Priority:** HIGH | **Effort:** Medium | **Status:** ✅ COMPLETE
+
+**Requirement:** Only the schedule generated from the planner's uploaded data should be saved as the "Published Schedule." Restrict schedule generation to Planner and Admin roles only.
+
+**Change Required:**
+- Add role checking to `/api/generate` endpoint — only `admin` and planner roles can generate
+- The generated schedule becomes the "Published Schedule" visible to all users
+- Hide the "Generate Schedule" button/link for non-planner/admin users
+- Add visual indicator on schedule page: "Published Schedule — Generated by [user] on [date]"
+- Customer Service and Guest roles can only view the published schedule
+
+**Files Affected:**
+- `backend/app.py` — Role check on `/api/generate`, store publisher info in schedule metadata
+- `backend/templates/base.html` — Conditionally show "Generate Schedule" sidebar link
+- `backend/templates/schedule.html` — Conditionally show "Generate New" button, add publisher info display
+- `backend/templates/index.html` — Conditionally show "Generate Schedule" button
+
+**Testing:**
+- Verify non-planner/admin users cannot generate schedules
+- Verify published schedule is visible to all users
+- Verify publisher name and timestamp are displayed
+- Verify Generate buttons are hidden for unauthorized roles
+
+---
+
+### 8.2 MEDIUM PRIORITY — MVP 1.1 Upgrades
+
+---
+
+#### 8.2.1 Data Fields Reference Document (Product Owner Feedback)
+
+**Priority:** MEDIUM | **Effort:** Small | **Status:** ✅ COMPLETE
+
+**Requirement:** Create a comprehensive list of all data fields used from the uploaded reports. This will help the product owner create custom reports or link to live feeds for MVP 2.0.
+
+**Deliverable:** `data_fields_reference.md` in the project root.
+
+**Content:** All fields from Open Sales Order, Shop Dispatch, Hot List, Core Mapping, and Process VSM that are actually used by the system.
+
+---
+
+### 8.3 LOW PRIORITY — Reserved for MVP 2.0
+
+See `MVP_2.0_Planning.md` for the following deferred items:
+- Days Idle column (requires "Last Move Date" data field — to-do for product owner)
+- Extended schedule simulation options (4/5/6 day weeks, 10/12 hour shifts, skeleton shifts)
+- Replace Core Mapping Excel with a user-editable database
+- GUI-based schedule manipulation (drag/drop reordering)
+- Full user group role definitions and permissions
+- Priority customer override for FIFO
+
+---
+
+### 8.4 MVP 1.1 Implementation Order (Recommended)
+
+The following order minimizes dependencies and allows incremental testing:
+
+| Step | Item | Rationale |
+|------|------|-----------|
+| 1 | ~~8.1.1 Fix First BLAST Time~~ | ✅ COMPLETE |
+| 2 | ~~8.1.3 Eliminate Pegging Report~~ | ✅ COMPLETE |
+| 3 | ~~8.1.8 Data Scrubbing~~ | ✅ COMPLETE |
+| 4 | ~~8.1.5 Add Serial Number Column~~ | ✅ COMPLETE |
+| 5 | ~~8.1.2 Rubber Type Alternation~~ | ✅ COMPLETE |
+| 6 | ~~8.1.4 Schedule Page Column Filtering~~ | ✅ COMPLETE |
+| 7 | ~~8.1.6 Version Header and Update Log~~ | ✅ COMPLETE |
+| 8 | ~~8.1.7 User Feedback Form~~ | ✅ COMPLETE |
+| 9 | ~~8.1.10 Published Schedule Concept~~ | ✅ COMPLETE |
+| 10 | ~~8.1.9 Schedule Mode Toggle (4/5 day)~~ | ✅ COMPLETE |
+| 11 | ~~8.2.1 Data Fields Reference Document~~ | ✅ COMPLETE |
+
+**All MVP 1.1 items completed in 1 development session (February 2026).**
 
 ---
 

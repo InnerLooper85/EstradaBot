@@ -65,12 +65,6 @@
                             <td>Work center operations and routing data</td>
                         </tr>
                         <tr>
-                            <td><i class="bi bi-file-earmark-excel text-success"></i> Pegging Report</td>
-                            <td><code>Pegging Report*.xlsx</code></td>
-                            <td><span class="badge bg-secondary">Optional</span></td>
-                            <td>Actual start dates and WO creation dates</td>
-                        </tr>
-                        <tr>
                             <td><i class="bi bi-file-earmark-excel text-warning"></i> Hot List</td>
                             <td><code>HOT LIST*.xlsx</code></td>
                             <td><span class="badge bg-secondary">Optional</span></td>
@@ -128,24 +122,6 @@
                             {% endif %}
                         </div>
                         {% if files.shop_dispatch %}
-                            <span class="badge bg-success"><i class="bi bi-check"></i></span>
-                        {% else %}
-                            <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
-                        {% endif %}
-                    </div>
-
-                    <!-- Pegging Report -->
-                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
-                        <div>
-                            <strong>Pegging Report</strong><br>
-                            {% if files.pegging_report %}
-                                <small class="text-success">{{ files.pegging_report.name }}</small><br>
-                                <small class="text-muted">{{ files.pegging_report.modified.strftime('%m/%d/%Y %H:%M') }}</small>
-                            {% else %}
-                                <small class="text-muted">Optional - not uploaded</small>
-                            {% endif %}
-                        </div>
-                        {% if files.pegging_report %}
                             <span class="badge bg-success"><i class="bi bi-check"></i></span>
                         {% else %}
                             <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
@@ -293,7 +269,6 @@
         const lower = filename.toLowerCase();
         if (lower.includes('open sales order')) return 'sales_order';
         if (lower.includes('shop dispatch')) return 'shop_dispatch';
-        if (lower.includes('pegging')) return 'pegging_report';
         if (lower.includes('hot list')) return 'hot_list';
         if (lower.includes('core mapping')) return 'core_mapping';
         return 'unknown';

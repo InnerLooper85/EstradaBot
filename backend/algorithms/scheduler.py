@@ -217,7 +217,6 @@ class ScheduledOrder:
     assigned_core: str = None  # e.g., "427-A"
     rubber_type: str = None
     operations: List[ScheduledOperation] = field(default_factory=list)
-    actual_start_date: datetime = None  # From Pegging Report
     blast_date: datetime = None
     completion_date: datetime = None
     turnaround_days: float = None
@@ -227,6 +226,7 @@ class ScheduledOrder:
     creation_date: datetime = None
     planned_desma: str = None  # Which Desma machine is assigned
     priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
+    serial_number: str = None  # From Sales Order report
 
 
 @dataclass

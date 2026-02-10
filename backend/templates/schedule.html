@@ -5,14 +5,22 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-table"></i> Schedule</h2>
-    <div>
+    <div class="d-flex align-items-center">
+        <span id="publishedBy" class="text-muted me-2"></span>
         <span id="generatedAt" class="text-muted me-3"></span>
+        <!-- Schedule Mode Toggle -->
+        <div id="modeToggle" class="btn-group me-2" role="group" style="display: none;">
+            <button type="button" class="btn btn-sm btn-outline-secondary active" id="btn4day" onclick="switchMode('4day')">4-Day</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btn5day" onclick="switchMode('5day')">5-Day</button>
+        </div>
         <button class="btn btn-outline-primary me-2" onclick="refreshSchedule()">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
+        {% if can_generate %}
         <button class="btn btn-primary" onclick="generateSchedule()">
             <i class="bi bi-play-circle"></i> Generate New
         </button>
+        {% endif %}
     </div>
 </div>
 
@@ -81,10 +89,12 @@
         <div id="noSchedule" class="text-center py-5" style="display: none;">
             <i class="bi bi-calendar-x" style="font-size: 4rem; color: #dee2e6;"></i>
             <h4 class="mt-3 text-muted">No Schedule Generated</h4>
-            <p class="text-muted">Upload your input files and click "Generate Schedule" to view the schedule.</p>
+            <p class="text-muted">Upload your input files and generate a schedule to view it here.</p>
+            {% if can_generate %}
             <button class="btn btn-primary" onclick="generateSchedule()">
                 <i class="bi bi-play-circle"></i> Generate Schedule
             </button>
+            {% endif %}
         </div>
 
         <div id="scheduleTableContainer" style="display: none;">
@@ -92,6 +102,7 @@
                 <thead>
                     <tr>
                         <th>WO#</th>
+                        <th>Serial #</th>
                         <th>Part Number</th>
                         <th>Description</th>
                         <th>Customer</th>
@@ -107,10 +118,39 @@
                 </thead>
                 <tbody id="scheduleTableBody">
                 </tbody>
+                <tfoot>
+                    <tr>
+                        <th>WO#</th>
+                        <th>Serial #</th>
+                        <th>Part Number</th>
+                        <th>Description</th>
+                        <th>Customer</th>
+                        <th>Core</th>
+                        <th>Rubber</th>
+                        <th>Priority</th>
+                        <th>BLAST Date</th>
+                        <th>Completion</th>
+                        <th>Promise Date</th>
+                        <th>Turnaround</th>
+                        <th>Status</th>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    #scheduleTable tfoot .column-filter {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
+    #scheduleTable tfoot th {
+        padding: 4px;
+    }
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -124,10 +164,19 @@
 
 <script>
     let dataTable = null;
+    let currentMode = '4day';
 
     $(document).ready(function() {
         loadSchedule();
     });
+
+    function switchMode(mode) {
+        currentMode = mode;
+        // Update toggle buttons
+        $('#btn4day').toggleClass('active', mode === '4day');
+        $('#btn5day').toggleClass('active', mode === '5day');
+        loadSchedule();
+    }
 
     function loadSchedule() {
         $('#loadingSpinner').show();
@@ -135,7 +184,7 @@
         $('#scheduleTableContainer').hide();
         $('#statsSection').hide();
 
-        fetch('/api/schedule')
+        fetch('/api/schedule?mode=' + currentMode)
             .then(response => response.json())
             .then(data => {
                 $('#loadingSpinner').hide();
@@ -143,6 +192,11 @@
                 if (!data.orders || data.orders.length === 0) {
                     $('#noSchedule').show();
                     return;
+                }
+
+                // Show mode toggle if dual modes are available
+                if (data.has_modes) {
+                    $('#modeToggle').show();
                 }
 
                 // Update stats
@@ -156,10 +210,13 @@
                     $('#statHotList').text(data.stats.hot_list_count || 0);
                 }
 
-                // Update generated at timestamp
+                // Update generated at timestamp and publisher
                 if (data.generated_at) {
                     const date = new Date(data.generated_at);
                     $('#generatedAt').text('Generated: ' + date.toLocaleString());
+                }
+                if (data.published_by) {
+                    $('#publishedBy').html('<i class="bi bi-person-check"></i> Published by: <strong>' + data.published_by + '</strong>');
                 }
 
                 // Build table body
@@ -178,11 +235,34 @@
                     dataTable.destroy();
                 }
 
+                // Dropdown columns: Rubber (6), Priority (7), Status (12)
+                const dropdownColumns = {
+                    6: ['XE', 'HR', 'XD', 'XR'],
+                    7: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
+                    12: ['On Time', 'Late', 'At Risk']
+                };
+
+                // Build filter inputs in tfoot before DataTable init
+                $('#scheduleTable tfoot th').each(function(i) {
+                    if (i === 3) {
+                        // Hidden description column - no filter
+                        $(this).html('');
+                    } else if (dropdownColumns[i]) {
+                        let options = '<option value="">All</option>';
+                        dropdownColumns[i].forEach(val => {
+                            options += `<option value="${val}">${val}</option>`;
+                        });
+                        $(this).html(`<select class="form-select form-select-sm column-filter">${options}</select>`);
+                    } else {
+                        $(this).html('<input type="text" class="form-control form-control-sm column-filter" placeholder="Filter...">');
+                    }
+                });
+
                 dataTable = $('#scheduleTable').DataTable({
                     pageLength: 25,
                     lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                    order: [[7, 'asc']],  // Sort by BLAST date
-                    dom: 'Bfrtip',
+                    order: [[8, 'asc']],  // Sort by BLAST date
+                    dom: 'Blfrtip',
                     buttons: [
                         {
                             extend: 'excel',
@@ -197,8 +277,28 @@
                         }
                     ],
                     columnDefs: [
-                        { targets: [2], visible: false }  // Hide description by default
+                        { targets: [3], visible: false }  // Hide description by default
                     ]
+                });
+
+                // Wire up column filters
+                dataTable.columns().every(function() {
+                    const column = this;
+                    const footer = $(column.footer());
+                    const input = footer.find('.column-filter');
+
+                    if (input.is('input')) {
+                        input.on('keyup change', function() {
+                            if (column.search() !== this.value) {
+                                column.search(this.value).draw();
+                            }
+                        });
+                    } else if (input.is('select')) {
+                        input.on('change', function() {
+                            const val = $.fn.dataTable.util.escapeRegex(this.value);
+                            column.search(val ? val : '', false, false).draw();
+                        });
+                    }
                 });
             })
             .catch(error => {
@@ -248,6 +348,7 @@
 
         return `<tr>
             <td><strong>${order.wo_number}</strong></td>
+            <td>${order.serial_number || '-'}</td>
             <td>${order.part_number}</td>
             <td>${desc.substring(0, 40)}${desc.length > 40 ? '...' : ''}</td>
             <td>${customer.substring(0, 25)}${customer.length > 25 ? '...' : ''}</td>

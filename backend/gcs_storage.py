@@ -165,12 +165,11 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
     Similar to the original get_uploaded_files() but for GCS.
 
     Returns:
-        Dict with keys: sales_order, shop_dispatch, pegging_report, hot_list, core_mapping, process_map
+        Dict with keys: sales_order, shop_dispatch, hot_list, core_mapping, process_map
     """
     files = {
         'sales_order': None,
         'shop_dispatch': None,
-        'pegging_report': None,
         'hot_list': None,
         'core_mapping': None,
         'process_map': None
@@ -188,9 +187,6 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         elif 'shop dispatch' in fname_lower:
             if files['shop_dispatch'] is None or file_info['modified'] > files['shop_dispatch']['modified']:
                 files['shop_dispatch'] = file_info
-        elif 'pegging' in fname_lower:
-            if files['pegging_report'] is None or file_info['modified'] > files['pegging_report']['modified']:
-                files['pegging_report'] = file_info
         elif 'hot list' in fname_lower or 'hot_list' in fname_lower:
             if files['hot_list'] is None or file_info['modified'] > files['hot_list']['modified']:
                 files['hot_list'] = file_info

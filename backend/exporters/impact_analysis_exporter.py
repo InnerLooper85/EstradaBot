@@ -71,6 +71,7 @@ def generate_impact_analysis(
 
             delayed_orders.append({
                 'WO#': order.wo_number,
+                'Serial Number': getattr(order, 'serial_number', None) or '',
                 'Part Number': order.part_number,
                 'Customer': order.customer,
                 'Original BLAST': baseline.blast_date,

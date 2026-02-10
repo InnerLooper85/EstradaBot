@@ -26,7 +26,7 @@ class WorkScheduleConfig:
     Schedule:
     - 4-day work week: Mon-Thu (weekdays 0-3)
     - 12-hour shifts: Day (5:00 AM - 5:00 PM), Night (5:00 PM - 5:00 AM)
-    - Handover: 20 minutes at shift start
+    - Handover: 30 minutes at shift start
     - Breaks: 15 min at 9:00/15:00 (day), 21:00/3:00 (night)
     - Lunch: 45 min at 11:00-11:45 (day), 23:00-23:45 (night)
     """
@@ -35,7 +35,7 @@ class WorkScheduleConfig:
     shift1_end: int = 17    # 5 PM
     shift2_start: int = 17  # 5 PM
     shift2_end: int = 5     # 5 AM (next day)
-    handover_minutes: int = 20
+    handover_minutes: int = 30
     takt_time_minutes: int = 30
 
     # Break times (hour, minute, duration_minutes)
@@ -458,7 +458,7 @@ class PartState:
     promise_date: Optional[datetime] = None
     creation_date: Optional[datetime] = None
     basic_finish_date: Optional[datetime] = None  # From SAP - used for On-Time calculation
-    actual_start_date: Optional[datetime] = None  # From Pegging Report
+    serial_number: Optional[str] = None  # From Sales Order report
 
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
@@ -495,7 +495,7 @@ class DESScheduler:
 
     def __init__(self, orders: List[Dict], core_mapping: Dict,
                  core_inventory: Dict, operations: Dict = None,
-                 work_schedule: Any = None):
+                 work_schedule: Any = None, working_days: List[int] = None):
         """
         Initialize the DES scheduler.
 
@@ -505,6 +505,7 @@ class DESScheduler:
             core_inventory: Available cores by number
             operations: Operation definitions (optional, uses defaults)
             work_schedule: Legacy parameter, ignored (uses WorkScheduleConfig)
+            working_days: Override working days (e.g., [0,1,2,3] for 4-day, [0,1,2,3,4] for 5-day)
         """
         self.orders = orders
         self.core_mapping = core_mapping
@@ -512,7 +513,10 @@ class DESScheduler:
         self.operations = operations or {}
 
         # Create work schedule config
-        self.work_config = WorkScheduleConfig()
+        if working_days:
+            self.work_config = WorkScheduleConfig(working_days=working_days)
+        else:
+            self.work_config = WorkScheduleConfig()
 
         # Create stations and machines
         self.stations = create_stations()
@@ -872,95 +876,129 @@ class DESScheduler:
 
         return hot_list_asap + hot_list_dated + rework_orders + normal_orders + cavo_orders
 
+    def _get_rubber_type_for_order(self, order_info: Dict) -> Optional[str]:
+        """Get the effective rubber type for an order (including hot list override)."""
+        order = order_info['order']
+        part_data = order_info['part_data']
+        wo_number = order.get('wo_number')
+
+        rubber_type = part_data.get('rubber_type') if part_data else None
+        if wo_number in self.hot_list_lookup:
+            hot_list_entry = self.hot_list_lookup[wo_number]
+            rubber_override = hot_list_entry.get('rubber_override')
+            if rubber_override:
+                rubber_type = rubber_override
+        return rubber_type
+
     def _schedule_blast_arrivals(self, orders: List[Dict], start_date: datetime):
-        """Schedule BLAST arrivals at takt intervals, checking core availability."""
+        """
+        Schedule BLAST arrivals at takt intervals, checking core availability.
+        Within the same priority tier, alternates between rubber types (XE/HR)
+        when possible. XD/XR orders are scheduled on Desma 5 (flex).
+        """
         takt_minutes = self.work_config.takt_time_minutes
         current_slot = start_date
+        last_rubber_type = None  # Track for alternation
 
         remaining_orders = orders.copy()
 
         while remaining_orders:
-            # Find an order whose core is available at this slot
+            # Find an order whose core is available at this slot.
+            # Within the same priority tier, prefer alternating rubber types.
             scheduled_this_slot = False
 
+            # Determine the priority tier of the first remaining order
+            first_priority = remaining_orders[0]['order'].get('priority', 'Normal')
+
+            # Collect candidates in the same priority tier with available cores
+            candidates = []  # List of (index, order_info, core, rubber_type)
             for i, order_info in enumerate(remaining_orders):
+                if order_info['order'].get('priority', 'Normal') != first_priority:
+                    break  # Stop at the boundary of the next priority tier
+
+                core = self._find_available_core(order_info['core_number'], current_slot)
+                if core:
+                    rubber_type = self._get_rubber_type_for_order(order_info)
+                    candidates.append((i, order_info, core, rubber_type))
+
+            # If no candidates in the top priority tier, check remaining orders
+            if not candidates:
+                for i, order_info in enumerate(remaining_orders):
+                    core = self._find_available_core(order_info['core_number'], current_slot)
+                    if core:
+                        rubber_type = self._get_rubber_type_for_order(order_info)
+                        candidates.append((i, order_info, core, rubber_type))
+                        break  # Take the first available from any tier
+
+            if candidates:
+                # Select the best candidate: prefer different rubber type from last
+                selected = candidates[0]  # Default: first available
+                if last_rubber_type and len(candidates) > 1:
+                    for candidate in candidates:
+                        if candidate[3] and candidate[3] != last_rubber_type:
+                            selected = candidate
+                            break
+
+                i, order_info, core, rubber_type = selected
                 order = order_info['order']
                 core_number = order_info['core_number']
                 part_data = order_info['part_data']
                 wo_number = order.get('wo_number')
 
-                # Check core availability
-                core = self._find_available_core(core_number, current_slot)
+                # Create part state
+                part_id = self._generate_part_id()
+                part_number = order.get('part_number', '')
+                is_reline = part_number.startswith('XN')
 
-                if core:
-                    # Create part state
-                    part_id = self._generate_part_id()
-                    part_number = order.get('part_number', '')
-                    is_reline = part_number.startswith('XN')
+                # Calculate BLAST time - account for rework lead time
+                blast_time = current_slot
+                is_rework = order.get('is_rework', False)
+                rework_lead_time_hours = order.get('rework_lead_time_hours', 0)
 
-                    # Determine rubber type - check for hot list override first
-                    rubber_type = part_data.get('rubber_type') if part_data else None
-                    if wo_number in self.hot_list_lookup:
-                        hot_list_entry = self.hot_list_lookup[wo_number]
-                        rubber_override = hot_list_entry.get('rubber_override')
-                        if rubber_override:
-                            rubber_type = rubber_override
-
-                    # Calculate BLAST time - account for rework lead time
-                    blast_time = current_slot
-                    is_rework = order.get('is_rework', False)
-                    rework_lead_time_hours = order.get('rework_lead_time_hours', 0)
-
-                    if is_rework and rework_lead_time_hours > 0:
-                        # Delay BLAST by rework lead time (rubber removal + prep)
-                        blast_time = self.work_config.advance_time(
-                            current_slot, rework_lead_time_hours
-                        )
-
-                    part_state = PartState(
-                        part_id=part_id,
-                        wo_number=wo_number,
-                        part_number=part_number,
-                        description=order.get('description', ''),
-                        customer=order.get('customer', ''),
-                        is_reline=is_reline,
-                        rubber_type=rubber_type,
-                        core_number=core_number,
-                        core_suffix=core['suffix'],
-                        injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
-                        cure_time=(part_data.get('cure_time') if part_data else None) or 1.5,
-                        quench_time=(part_data.get('quench_time') if part_data else None) or 0.75,
-                        disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
-                        promise_date=order.get('promise_date'),
-                        creation_date=order.get('creation_date') or order.get('created_on'),
-                        basic_finish_date=order.get('basic_finish_date'),
-                        actual_start_date=order.get('actual_start_date'),
-                        priority=order.get('priority', 'Normal')
+                if is_rework and rework_lead_time_hours > 0:
+                    blast_time = self.work_config.advance_time(
+                        current_slot, rework_lead_time_hours
                     )
 
-                    self.parts[part_id] = part_state
+                part_state = PartState(
+                    part_id=part_id,
+                    wo_number=wo_number,
+                    part_number=part_number,
+                    description=order.get('description', ''),
+                    customer=order.get('customer', ''),
+                    is_reline=is_reline,
+                    rubber_type=rubber_type,
+                    core_number=core_number,
+                    core_suffix=core['suffix'],
+                    injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
+                    cure_time=(part_data.get('cure_time') if part_data else None) or 1.5,
+                    quench_time=(part_data.get('quench_time') if part_data else None) or 0.75,
+                    disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
+                    promise_date=order.get('promise_date'),
+                    creation_date=order.get('creation_date') or order.get('created_on'),
+                    basic_finish_date=order.get('basic_finish_date'),
+                    serial_number=order.get('serial_number'),
+                    priority=order.get('priority', 'Normal')
+                )
 
-                    # Assign core (use blast_time for core return calculation)
-                    self._assign_core(core_number, core['suffix'],
-                                     wo_number, blast_time, part_data)
+                self.parts[part_id] = part_state
+                last_rubber_type = rubber_type
 
-                    # Schedule BLAST arrival event
-                    event = SimEvent(
-                        time=blast_time,
-                        event_type=EventType.BLAST_ARRIVAL,
-                        part_id=part_id,
-                        station='BLAST'
-                    )
-                    heapq.heappush(self.event_queue, event)
+                # Assign core (use blast_time for core return calculation)
+                self._assign_core(core_number, core['suffix'],
+                                 wo_number, blast_time, part_data)
 
-                    remaining_orders.pop(i)
-                    scheduled_this_slot = True
-                    break
-                else:
-                    # Core not available - track if this is a hot list order
-                    if wo_number in self.hot_list_lookup:
-                        # Don't add to shortage list yet - it may be scheduled later
-                        pass
+                # Schedule BLAST arrival event
+                event = SimEvent(
+                    time=blast_time,
+                    event_type=EventType.BLAST_ARRIVAL,
+                    part_id=part_id,
+                    station='BLAST'
+                )
+                heapq.heappush(self.event_queue, event)
+
+                remaining_orders.pop(i)
+                scheduled_this_slot = True
 
             if scheduled_this_slot:
                 # Advance to next takt slot
@@ -1200,22 +1238,12 @@ class DESScheduler:
                 )
                 operations.append(sched_op)
 
-            # Calculate turnaround based on order type
-            # - New Stators: Completion Date - Actual Start Date (or WO Creation Date if no actual start)
-            # - Relines: Completion Date - WO Creation Date
+            # Calculate turnaround: Completion Date - WO Creation Date
             turnaround_days = None
             if part.completion_time:
                 try:
-                    if part.is_reline:
-                        # Relines: use WO Creation Date
-                        if part.creation_date:
-                            turnaround_days = (part.completion_time - part.creation_date).days
-                    else:
-                        # New Stators: prefer Actual Start Date, fall back to WO Creation Date
-                        if part.actual_start_date:
-                            turnaround_days = (part.completion_time - part.actual_start_date).days
-                        elif part.creation_date:
-                            turnaround_days = (part.completion_time - part.creation_date).days
+                    if part.creation_date:
+                        turnaround_days = (part.completion_time - part.creation_date).days
                 except:
                     pass
 
@@ -1237,7 +1265,6 @@ class DESScheduler:
                 assigned_core=f"{part.core_number}-{part.core_suffix}" if part.core_number else None,
                 rubber_type=part.rubber_type,
                 operations=operations,
-                actual_start_date=part.actual_start_date,
                 blast_date=part.blast_time,
                 completion_date=part.completion_time,
                 turnaround_days=turnaround_days,
@@ -1246,7 +1273,8 @@ class DESScheduler:
                 on_time=on_time,
                 creation_date=part.creation_date,
                 planned_desma=part.planned_desma,
-                priority=part.priority
+                priority=part.priority,
+                serial_number=part.serial_number
             )
 
             self.scheduled_orders.append(scheduled)
