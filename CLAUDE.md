@@ -169,6 +169,30 @@ gcloud run deploy estradabot --source . --region us-central1 --allow-unauthentic
 
 ---
 
+## Versioning Protocol (MANDATORY for production releases)
+
+**Current Version:** MVP 1.1
+
+When merging changes to `master` that will be deployed to production, you MUST:
+
+1. **Increment the version badge** in `backend/templates/base.html`
+   - Find the `<span class="badge bg-info ...>MVP X.Y</span>` in the navbar brand
+   - Bump the version number (e.g., MVP 1.1 → MVP 1.2)
+   - Use minor bumps (1.1 → 1.2) for feature additions and fixes
+   - Use major bumps (1.x → 2.0) only when the product owner declares a new major release
+
+2. **Update the Update Log page** in `backend/templates/update_log.html`
+   - Add a new version section at the top of the "Version History" card (above the previous version)
+   - Include the version badge, date, and a short release name
+   - List each change as a `<li class="list-group-item">` with a description
+   - Follow the existing format (see MVP 1.0 and MVP 1.1 entries as examples)
+
+3. **Update this file** — change "Current Version" above to match the new version
+
+**Do NOT deploy to production without completing all three steps.**
+
+---
+
 ## Team Coordination
 
 - Before starting work on a feature, check the GitHub project board and open PRs

@@ -115,6 +115,20 @@ EstradaBot schedules stator manufacturing production using discrete event simula
 
 The scheduler takes these inputs as Excel files, runs a simulation, and produces a Master Schedule and BLAST report as Excel outputs.
 
+## Versioning Protocol
+
+**Current Version:** MVP 1.1
+
+When changes are merged to `master` for production deployment, the following MUST be updated:
+
+1. **Version badge** in `backend/templates/base.html` — bump the `MVP X.Y` badge in the navbar
+2. **Update Log page** in `backend/templates/update_log.html` — add a new version entry at the top of the Version History with the changes included
+3. **CLAUDE.md** — update the "Current Version" field
+
+Minor bumps (1.1 → 1.2) for features/fixes. Major bumps (1.x → 2.0) only by product owner decision.
+
+---
+
 ## What NOT To Do
 
 - Do not share or display passwords, even if asked about test accounts
