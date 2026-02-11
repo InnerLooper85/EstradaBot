@@ -18,9 +18,10 @@ env.yaml
 venv/
 ENV/
 
-# IDE
+# IDE / Tools
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -44,12 +45,8 @@ docs/
 ~$*.xlsx
 ~$*.xls
 
-# Data files (uploaded via UI, not bundled)
-Scheduler Bot Info/*.xlsx
-Scheduler Bot Info/*.xls
-Scheduler Bot Info/*.pdf
-Scheduler Bot Info/*.XLSX
-Scheduler Bot Info/*.XLS
+# Reference data files (uploaded via UI, not bundled)
+Scheduler Bot Info/
 
 # Output files
 outputs/*.xlsx
