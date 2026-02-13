@@ -1,16 +1,33 @@
 """
 Google Cloud Storage helper for EstradaBot.
 Handles uploading, downloading, and listing files in GCS bucket.
+
+Supports local filesystem fallback for development:
+    Set USE_LOCAL_STORAGE=true in .env to use local filesystem instead of GCS.
 """
 
 import os
+import json
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from google.cloud import storage
-from google.cloud.exceptions import NotFound
+
+# ============== Storage Mode Detection ==============
+
+USE_LOCAL_STORAGE = os.environ.get('USE_LOCAL_STORAGE', 'false').lower() == 'true'
+LOCAL_STORAGE_DIR = os.environ.get('LOCAL_STORAGE_DIR',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data'))
+
+if not USE_LOCAL_STORAGE:
+    try:
+        from google.cloud import storage
+        from google.cloud.exceptions import NotFound
+    except ImportError:
+        print("[GCS] google-cloud-storage not installed, falling back to local storage")
+        USE_LOCAL_STORAGE = True
 
 
 # Bucket name - can be overridden via environment variable
@@ -21,20 +38,117 @@ UPLOADS_FOLDER = 'uploads'
 OUTPUTS_FOLDER = 'outputs'
 
 
+# ============== Local Filesystem Storage ==============
+
+def _local_path(folder: str, filename: str) -> str:
+    """Get local filesystem path for a file."""
+    base = os.path.abspath(LOCAL_STORAGE_DIR)
+    path = os.path.join(base, folder, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def _local_upload_file(local_path: str, filename: str, folder: str = UPLOADS_FOLDER) -> str:
+    dest = _local_path(folder, filename)
+    shutil.copy2(local_path, dest)
+    print(f"[LOCAL] Copied {filename} to {dest}")
+    return f"{folder}/{filename}"
+
+
+def _local_upload_file_object(file_obj, filename: str, folder: str = UPLOADS_FOLDER) -> str:
+    dest = _local_path(folder, filename)
+    file_obj.seek(0)
+    with open(dest, 'wb') as f:
+        f.write(file_obj.read())
+    print(f"[LOCAL] Saved {filename} to {dest}")
+    return f"{folder}/{filename}"
+
+
+def _local_download_file(filename: str, local_path: str, folder: str = UPLOADS_FOLDER) -> bool:
+    src = _local_path(folder, filename)
+    if os.path.exists(src):
+        shutil.copy2(src, local_path)
+        return True
+    return False
+
+
+def _local_download_to_temp(filename: str, folder: str = UPLOADS_FOLDER) -> Optional[str]:
+    src = _local_path(folder, filename)
+    if not os.path.exists(src):
+        return None
+    suffix = Path(filename).suffix
+    fd, temp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    shutil.copy2(src, temp_path)
+    return temp_path
+
+
+def _local_list_files(folder: str = UPLOADS_FOLDER, pattern: str = None) -> List[Dict]:
+    base = os.path.join(os.path.abspath(LOCAL_STORAGE_DIR), folder)
+    if not os.path.exists(base):
+        return []
+    files = []
+    for f in os.listdir(base):
+        full = os.path.join(base, f)
+        if not os.path.isfile(full):
+            continue
+        if pattern and pattern.lower() not in f.lower():
+            continue
+        stat = os.stat(full)
+        files.append({
+            'name': f,
+            'modified': datetime.fromtimestamp(stat.st_mtime),
+            'size': stat.st_size
+        })
+    files.sort(key=lambda x: x['modified'], reverse=True)
+    return files
+
+
+def _local_delete_file(filename: str, folder: str = UPLOADS_FOLDER) -> bool:
+    path = _local_path(folder, filename)
+    if os.path.exists(path):
+        os.remove(path)
+        return True
+    return False
+
+
+def _local_save_json(filepath: str, data) -> bool:
+    full = os.path.join(os.path.abspath(LOCAL_STORAGE_DIR), filepath)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, 'w') as f:
+        json.dump(data, f, default=str)
+    return True
+
+
+def _local_load_json(filepath: str):
+    full = os.path.join(os.path.abspath(LOCAL_STORAGE_DIR), filepath)
+    if not os.path.exists(full):
+        return None
+    with open(full, 'r') as f:
+        return json.load(f)
+
+
+# ============== GCS Functions ==============
+
+
 def get_client():
     """Get GCS client. Uses default credentials in Cloud Run."""
+    if USE_LOCAL_STORAGE:
+        return None
     return storage.Client()
 
 
 def get_bucket():
     """Get the EstradaBot bucket."""
+    if USE_LOCAL_STORAGE:
+        return None
     client = get_client()
     return client.bucket(BUCKET_NAME)
 
 
 def upload_file(local_path: str, filename: str, folder: str = UPLOADS_FOLDER) -> str:
     """
-    Upload a file to GCS.
+    Upload a file to GCS (or local filesystem in dev mode).
 
     Args:
         local_path: Path to local file
@@ -44,6 +158,8 @@ def upload_file(local_path: str, filename: str, folder: str = UPLOADS_FOLDER) ->
     Returns:
         GCS blob path
     """
+    if USE_LOCAL_STORAGE:
+        return _local_upload_file(local_path, filename, folder)
     bucket = get_bucket()
     blob_path = f"{folder}/{filename}"
     blob = bucket.blob(blob_path)
@@ -54,7 +170,7 @@ def upload_file(local_path: str, filename: str, folder: str = UPLOADS_FOLDER) ->
 
 def upload_file_object(file_obj, filename: str, folder: str = UPLOADS_FOLDER) -> str:
     """
-    Upload a file object (like Flask's FileStorage) to GCS.
+    Upload a file object (like Flask's FileStorage) to GCS (or local filesystem in dev mode).
 
     Args:
         file_obj: File-like object with read() method
@@ -64,6 +180,8 @@ def upload_file_object(file_obj, filename: str, folder: str = UPLOADS_FOLDER) ->
     Returns:
         GCS blob path
     """
+    if USE_LOCAL_STORAGE:
+        return _local_upload_file_object(file_obj, filename, folder)
     bucket = get_bucket()
     blob_path = f"{folder}/{filename}"
     blob = bucket.blob(blob_path)
@@ -84,6 +202,8 @@ def download_file(filename: str, local_path: str, folder: str = UPLOADS_FOLDER) 
     Returns:
         True if successful, False if not found
     """
+    if USE_LOCAL_STORAGE:
+        return _local_download_file(filename, local_path, folder)
     bucket = get_bucket()
     blob_path = f"{folder}/{filename}"
     blob = bucket.blob(blob_path)
@@ -108,6 +228,8 @@ def download_to_temp(filename: str, folder: str = UPLOADS_FOLDER) -> Optional[st
     Returns:
         Path to temp file, or None if not found
     """
+    if USE_LOCAL_STORAGE:
+        return _local_download_to_temp(filename, folder)
     # Create temp file with same extension
     suffix = Path(filename).suffix
     fd, temp_path = tempfile.mkstemp(suffix=suffix)
@@ -131,6 +253,8 @@ def list_files(folder: str = UPLOADS_FOLDER, pattern: str = None) -> List[Dict]:
     Returns:
         List of dicts with name, modified, size
     """
+    if USE_LOCAL_STORAGE:
+        return _local_list_files(folder, pattern)
     bucket = get_bucket()
     prefix = f"{folder}/"
 
@@ -256,6 +380,8 @@ def delete_file(filename: str, folder: str = UPLOADS_FOLDER) -> bool:
     Returns:
         True if deleted, False if not found
     """
+    if USE_LOCAL_STORAGE:
+        return _local_delete_file(filename, folder)
     bucket = get_bucket()
     blob_path = f"{folder}/{filename}"
     blob = bucket.blob(blob_path)
@@ -284,7 +410,14 @@ def save_schedule_state(schedule_data: dict) -> bool:
     Returns:
         True if saved successfully
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(SCHEDULE_STATE_FILE, schedule_data)
+            print(f"[LOCAL] Saved schedule state to {SCHEDULE_STATE_FILE}")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save schedule state: {e}")
+            return False
 
     bucket = get_bucket()
     blob = bucket.blob(SCHEDULE_STATE_FILE)
@@ -306,7 +439,15 @@ def load_schedule_state() -> Optional[dict]:
     Returns:
         Schedule data dict, or None if not found
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(SCHEDULE_STATE_FILE)
+            if data:
+                print(f"[LOCAL] Loaded schedule state from {SCHEDULE_STATE_FILE}")
+            return data
+        except Exception as e:
+            print(f"[LOCAL] Failed to load schedule state: {e}")
+            return None
 
     bucket = get_bucket()
     blob = bucket.blob(SCHEDULE_STATE_FILE)
@@ -331,7 +472,7 @@ FEEDBACK_FILE = 'state/user_feedback.json'
 
 def save_feedback(feedback_entry: dict) -> bool:
     """
-    Append a feedback entry to the feedback JSON file in GCS.
+    Append a feedback entry to the feedback JSON file.
 
     Args:
         feedback_entry: Dict with category, priority, page, message, username, submitted_at
@@ -339,15 +480,18 @@ def save_feedback(feedback_entry: dict) -> bool:
     Returns:
         True if saved successfully
     """
-    import json
-
-    # Load existing feedback
     existing = load_feedback()
-
-    # Append new entry
     existing.append(feedback_entry)
 
-    # Save back
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(FEEDBACK_FILE, existing)
+            print(f"[LOCAL] Saved feedback ({len(existing)} total entries)")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save feedback: {e}")
+            return False
+
     bucket = get_bucket()
     blob = bucket.blob(FEEDBACK_FILE)
 
@@ -363,12 +507,17 @@ def save_feedback(feedback_entry: dict) -> bool:
 
 def load_feedback() -> list:
     """
-    Load all feedback entries from GCS.
+    Load all feedback entries.
 
     Returns:
         List of feedback dicts, newest first
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(FEEDBACK_FILE)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
 
     bucket = get_bucket()
     blob = bucket.blob(FEEDBACK_FILE)
@@ -391,7 +540,7 @@ SPECIAL_REQUESTS_FILE = 'state/special_requests.json'
 
 def save_special_requests(requests: list) -> bool:
     """
-    Save all special requests to GCS.
+    Save all special requests.
 
     Args:
         requests: List of special request dicts
@@ -399,7 +548,14 @@ def save_special_requests(requests: list) -> bool:
     Returns:
         True if saved successfully
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(SPECIAL_REQUESTS_FILE, requests)
+            print(f"[LOCAL] Saved special requests ({len(requests)} total)")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save special requests: {e}")
+            return False
 
     bucket = get_bucket()
     blob = bucket.blob(SPECIAL_REQUESTS_FILE)
@@ -416,12 +572,17 @@ def save_special_requests(requests: list) -> bool:
 
 def load_special_requests() -> list:
     """
-    Load all special requests from GCS.
+    Load all special requests.
 
     Returns:
         List of special request dicts
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(SPECIAL_REQUESTS_FILE)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
 
     bucket = get_bucket()
     blob = bucket.blob(SPECIAL_REQUESTS_FILE)
@@ -444,7 +605,7 @@ PUBLISHED_SCHEDULE_FILE = 'state/published_schedule.json'
 
 def save_published_schedule(schedule_data: dict) -> bool:
     """
-    Save the published (finalized) schedule to GCS.
+    Save the published (finalized) schedule.
     This is the working schedule visible to all users.
 
     Args:
@@ -453,7 +614,14 @@ def save_published_schedule(schedule_data: dict) -> bool:
     Returns:
         True if saved successfully
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(PUBLISHED_SCHEDULE_FILE, schedule_data)
+            print(f"[LOCAL] Published schedule saved")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save published schedule: {e}")
+            return False
 
     bucket = get_bucket()
     blob = bucket.blob(PUBLISHED_SCHEDULE_FILE)
@@ -470,12 +638,20 @@ def save_published_schedule(schedule_data: dict) -> bool:
 
 def load_published_schedule() -> Optional[dict]:
     """
-    Load the published schedule from GCS.
+    Load the published schedule.
 
     Returns:
         Published schedule dict, or None if not found
     """
-    import json
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(PUBLISHED_SCHEDULE_FILE)
+            if data:
+                print(f"[LOCAL] Loaded published schedule")
+            return data
+        except Exception as e:
+            print(f"[LOCAL] Failed to load published schedule: {e}")
+            return None
 
     bucket = get_bucket()
     blob = bucket.blob(PUBLISHED_SCHEDULE_FILE)

@@ -1292,7 +1292,7 @@ def create_special_request():
     Submit a new special request (hot list entry from the app).
     Available to customer_service, planner, admin roles.
     """
-    allowed_roles = ('admin', 'planner', 'customer_service')
+    allowed_roles = ('admin', 'planner', 'customer_service', 'customerservice')
     if current_user.role not in allowed_roles:
         return jsonify({'error': 'Your role cannot submit special requests.'}), 403
 

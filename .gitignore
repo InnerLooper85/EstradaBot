@@ -1,6 +1,9 @@
 # Output files
 outputs/
 
+# Local dev storage (USE_LOCAL_STORAGE=true)
+data/
+
 # IDE and editor settings
 .obsidian/
 .claude/
