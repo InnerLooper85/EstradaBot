@@ -13,11 +13,15 @@
 - Wants to skip GitHub PR review for his own deploys (owner direct deploy in CLAUDE.md)
 - Team members still go through PRs
 
-### Working Style
-- Sean dumps requirements as a stream of thoughts, then says **"Melt Banana"** as the go signal
-- **"Melt Banana" means:** start executing immediately, full speed, autonomous, parallelize, minimize questions. Only pause for genuinely destructive actions.
-- **DO NOT start building before the go signal.** Collect, think, but don't act until told.
-- Sean prefers to see plans acknowledged and understood before execution starts
+### Working Style — Melt Banana Protocol (MBP)
+
+Full protocol is defined in `CLAUDE.md` under "Melt Banana Protocol (MBP)". Summary:
+
+- **"Initiate MBP"** or **"Initiate Melt Banana Protocol"** → Enter collection mode. Stop all actions. Only digest prompts, acknowledge with numbered receipts, and write requirements to memory.md.
+- **"Melt Banana"**, **"MELT BANANA"**, or **"Cook the Cavendish"** → Go signal. Present consolidated briefing, then execute full speed.
+- **"Cancel MBP"**, **"Stand down"**, or **"Abort MBP"** → Cancel collection, keep notes, return to normal.
+- During MBP: number each prompt (MBP #1, #2, ...), update memory.md in real time, don't build anything.
+- On go signal: consolidated summary first, then autonomous execution.
 
 ---
 
