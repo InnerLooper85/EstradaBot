@@ -307,7 +307,7 @@ if __name__ == "__main__":
     loader.load_hot_list()
 
     from datetime import datetime
-    start_date = datetime(2026, 2, 2, 5, 20)  # Monday Feb 2, 2026 at 5:20 AM (after handover)
+    start_date = datetime(2026, 2, 2, 5, 30)  # Monday Feb 2, 2026 at 5:30 AM (after handover)
 
     # Create and run baseline scheduler (without hot list) for impact analysis
     baseline_scheduler = None

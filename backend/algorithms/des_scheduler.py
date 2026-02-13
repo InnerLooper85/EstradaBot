@@ -69,7 +69,7 @@ class WorkScheduleConfig:
             day_end = day_start + timedelta(days=1)
             return [(day_start, day_end)]
 
-        # Day shift handover (5:00-5:20)
+        # Day shift handover (5:00-5:30)
         shift1_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_start))
         periods.append((shift1_start, shift1_start + timedelta(minutes=self.handover_minutes)))
 
@@ -78,7 +78,7 @@ class WorkScheduleConfig:
             break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
             periods.append((break_start, break_start + timedelta(minutes=duration)))
 
-        # Night shift handover (5:00 PM - 5:20 PM)
+        # Night shift handover (5:00 PM - 5:30 PM)
         shift2_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift2_start))
         periods.append((shift2_start, shift2_start + timedelta(minutes=self.handover_minutes)))
 
@@ -1376,7 +1376,7 @@ if __name__ == "__main__":
     )
 
     # Run scheduling
-    start_date = datetime(2026, 2, 2, 5, 20)  # Feb 2, 2026, 5:20 AM (Mon, after handover)
+    start_date = datetime(2026, 2, 2, 5, 30)  # Feb 2, 2026, 5:30 AM (Mon, after handover)
     scheduled = scheduler.schedule_orders(start_date=start_date)
 
     # Print summary
