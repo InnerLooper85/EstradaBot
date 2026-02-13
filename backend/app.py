@@ -397,6 +397,13 @@ def update_log_page():
     return render_template('update_log.html')
 
 
+@app.route('/mfg-eng-review')
+@login_required
+def mfg_eng_review_page():
+    """Manufacturing Engineering Review page."""
+    return render_template('mfg_eng_review.html')
+
+
 # ============== Reconciliation Helpers ==============
 
 
