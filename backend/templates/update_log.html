@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.3</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.4</span>
 </div>
 
 <!-- Feedback Form -->
@@ -97,6 +97,40 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.4 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.4</span>
+                <small class="text-muted ms-2">February 2026 - Special Requests System</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Dedicated Special Requests Page:</strong> New page accessible to all roles for submitting, reviewing, and managing schedule change requests
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Two-Mode Submission:</strong> Mode A searches existing orders with autocomplete; Mode B creates placeholder requests for WOs not yet in the system
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Hot List &amp; Redline Requests:</strong> Submit priority bumps (ASAP/dated) or rubber substitution changes (XE, HR, XD, XR)
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Impact Preview:</strong> See scheduling impact before submitting a request — shows delayed orders and newly-late orders
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Approval Queue:</strong> Status-filtered queue with approve/reject actions for planners; rejection reasons tracked and visible
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>WO Reconciliation:</strong> Mode B placeholders automatically match when matching data files are uploaded
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.3 -->
         <div class="mb-4">
             <h5>
