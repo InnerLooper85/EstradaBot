@@ -226,6 +226,9 @@
                     <a class="nav-link {% if request.endpoint == 'special_requests_page' %}active{% endif %}" href="/special-requests">
                         <i class="bi bi-exclamation-triangle"></i> Special Requests
                     </a>
+                    <a class="nav-link {% if request.endpoint == 'mfg_eng_review_page' %}active{% endif %}" href="/mfg-eng-review">
+                        <i class="bi bi-gear-wide-connected"></i> Mfg Eng Review
+                    </a>
                     <hr class="mx-3">
                     {% if current_user.is_authenticated and current_user.role in ['admin', 'planner'] %}
                     <a class="nav-link {% if request.endpoint == 'planner_page' %}active{% endif %}" href="/planner">
