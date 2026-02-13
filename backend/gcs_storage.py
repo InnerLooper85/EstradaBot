@@ -382,3 +382,112 @@ def load_feedback() -> list:
     except Exception as e:
         print(f"[GCS] Failed to load feedback: {e}")
         return []
+
+
+# ============== Special Request Persistence ==============
+
+SPECIAL_REQUESTS_FILE = 'state/special_requests.json'
+
+
+def save_special_requests(requests: list) -> bool:
+    """
+    Save all special requests to GCS.
+
+    Args:
+        requests: List of special request dicts
+
+    Returns:
+        True if saved successfully
+    """
+    import json
+
+    bucket = get_bucket()
+    blob = bucket.blob(SPECIAL_REQUESTS_FILE)
+
+    try:
+        json_data = json.dumps(requests, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved special requests ({len(requests)} total)")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save special requests: {e}")
+        return False
+
+
+def load_special_requests() -> list:
+    """
+    Load all special requests from GCS.
+
+    Returns:
+        List of special request dicts
+    """
+    import json
+
+    bucket = get_bucket()
+    blob = bucket.blob(SPECIAL_REQUESTS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, list) else []
+    except NotFound:
+        return []
+    except Exception as e:
+        print(f"[GCS] Failed to load special requests: {e}")
+        return []
+
+
+# ============== Published Schedule Persistence ==============
+
+PUBLISHED_SCHEDULE_FILE = 'state/published_schedule.json'
+
+
+def save_published_schedule(schedule_data: dict) -> bool:
+    """
+    Save the published (finalized) schedule to GCS.
+    This is the working schedule visible to all users.
+
+    Args:
+        schedule_data: Dict with schedule info, orders, stats, mode config
+
+    Returns:
+        True if saved successfully
+    """
+    import json
+
+    bucket = get_bucket()
+    blob = bucket.blob(PUBLISHED_SCHEDULE_FILE)
+
+    try:
+        json_data = json.dumps(schedule_data, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Published schedule saved")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save published schedule: {e}")
+        return False
+
+
+def load_published_schedule() -> Optional[dict]:
+    """
+    Load the published schedule from GCS.
+
+    Returns:
+        Published schedule dict, or None if not found
+    """
+    import json
+
+    bucket = get_bucket()
+    blob = bucket.blob(PUBLISHED_SCHEDULE_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        print(f"[GCS] Loaded published schedule")
+        return data
+    except NotFound:
+        print(f"[GCS] No published schedule found")
+        return None
+    except Exception as e:
+        print(f"[GCS] Failed to load published schedule: {e}")
+        return None

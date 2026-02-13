@@ -14,16 +14,17 @@
         <i class="bi bi-chat-dots"></i> Submit Feedback
     </div>
     <div class="card-body">
-        <form id="feedbackForm">
+        <form id="feedbackForm" enctype="multipart/form-data">
             <div class="row mb-3">
                 <div class="col-md-4">
                     <label for="feedbackCategory" class="form-label">Category</label>
-                    <select class="form-select" id="feedbackCategory" required>
+                    <select class="form-select" id="feedbackCategory" required onchange="onCategoryChange()">
                         <option value="">Select...</option>
                         <option value="Bug Report">Bug Report</option>
                         <option value="Feature Request">Feature Request</option>
                         <option value="Data Issue">Data Issue</option>
                         <option value="UI/UX Improvement">UI/UX Improvement</option>
+                        <option value="Example File">Example File</option>
                         <option value="Other">Other</option>
                     </select>
                 </div>
@@ -44,6 +45,7 @@
                         <option value="Schedule">Schedule</option>
                         <option value="Reports">Reports</option>
                         <option value="Simulation">Simulation</option>
+                        <option value="Planner">Planner Workflow</option>
                     </select>
                 </div>
             </div>
@@ -51,6 +53,18 @@
                 <label for="feedbackMessage" class="form-label">Description</label>
                 <textarea class="form-control" id="feedbackMessage" rows="3" required
                     placeholder="Describe the issue, suggestion, or feedback..."></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="feedbackFile" class="form-label">
+                    <i class="bi bi-paperclip"></i> Attach File
+                    <small class="text-muted">(screenshots, Excel files — max 25 MB)</small>
+                </label>
+                <input type="file" class="form-control" id="feedbackFile"
+                       accept=".png,.jpg,.jpeg,.gif,.bmp,.xlsx,.xls,.csv">
+                <div id="exampleFileHint" class="form-text text-info" style="display: none;">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Example File:</strong> Upload an Excel file for debugging or feature development. It will be stored in the development files area.
+                </div>
             </div>
             <button type="submit" class="btn btn-primary">
                 <i class="bi bi-send"></i> Submit Feedback
@@ -214,27 +228,41 @@
 
 {% block extra_js %}
 <script>
-    // Feedback form submission
+    // Show hint when "Example File" category is selected
+    function onCategoryChange() {
+        const category = document.getElementById('feedbackCategory').value;
+        const hint = document.getElementById('exampleFileHint');
+        hint.style.display = category === 'Example File' ? 'block' : 'none';
+    }
+
+    // Feedback form submission with file upload support
     document.getElementById('feedbackForm').addEventListener('submit', function(e) {
         e.preventDefault();
 
-        const feedback = {
-            category: document.getElementById('feedbackCategory').value,
-            priority: document.getElementById('feedbackPriority').value,
-            page: document.getElementById('feedbackPage').value,
-            message: document.getElementById('feedbackMessage').value
-        };
+        const fileInput = document.getElementById('feedbackFile');
+        const hasFile = fileInput.files && fileInput.files.length > 0;
+
+        // Use FormData for multipart upload when file is present
+        const formData = new FormData();
+        formData.append('category', document.getElementById('feedbackCategory').value);
+        formData.append('priority', document.getElementById('feedbackPriority').value);
+        formData.append('page', document.getElementById('feedbackPage').value);
+        formData.append('message', document.getElementById('feedbackMessage').value);
+
+        if (hasFile) {
+            formData.append('file', fileInput.files[0]);
+        }
 
         fetch('/api/feedback', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(feedback)
+            body: formData
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
                 document.getElementById('feedbackSuccess').style.display = 'block';
                 document.getElementById('feedbackForm').reset();
+                document.getElementById('exampleFileHint').style.display = 'none';
                 setTimeout(() => {
                     document.getElementById('feedbackSuccess').style.display = 'none';
                 }, 5000);
@@ -268,7 +296,7 @@
 
                 count.textContent = data.feedback.length;
                 let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr>' +
-                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Page</th><th>Message</th>' +
+                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Page</th><th>Message</th><th>File</th>' +
                     '</tr></thead><tbody>';
 
                 data.feedback.forEach(fb => {
@@ -278,13 +306,29 @@
                     });
                     const priorityClass = fb.priority === 'High' ? 'text-danger' :
                                          fb.priority === 'Medium' ? 'text-warning' : 'text-muted';
+                    const categoryClass = fb.category === 'Example File' ? 'bg-info' : 'bg-secondary';
+
+                    let fileCell = '-';
+                    if (fb.attachment) {
+                        const a = fb.attachment;
+                        const isImage = ['png','jpg','jpeg','gif','bmp'].includes(a.type);
+                        const icon = isImage ? 'bi-image' : 'bi-file-earmark-excel';
+                        const sizeKb = Math.round((a.size || 0) / 1024);
+                        fileCell = `<a href="/api/feedback/download/${a.stored_as}?folder=${encodeURIComponent(a.folder)}"
+                                      class="text-decoration-none" title="${a.filename}">
+                                      <i class="bi ${icon}"></i> ${a.filename.substring(0, 20)}
+                                      <small class="text-muted">(${sizeKb} KB)</small>
+                                   </a>`;
+                    }
+
                     html += `<tr>
                         <td class="small">${date}</td>
                         <td>${fb.username || '-'}</td>
-                        <td><span class="badge bg-secondary">${fb.category}</span></td>
+                        <td><span class="badge ${categoryClass}">${fb.category}</span></td>
                         <td class="${priorityClass}">${fb.priority}</td>
                         <td>${fb.page || '-'}</td>
                         <td>${fb.message.substring(0, 100)}${fb.message.length > 100 ? '...' : ''}</td>
+                        <td>${fileCell}</td>
                     </tr>`;
                 });
 

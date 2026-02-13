@@ -1,0 +1,804 @@
+{% extends 'base.html' %}
+
+{% block title %}Planner Workflow - EstradaBot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-clipboard-check"></i> Planner Workflow</h2>
+    <div>
+        <span id="publishedInfo" class="text-muted me-3"></span>
+        <span class="badge bg-secondary" id="workflowStep">Step 1</span>
+    </div>
+</div>
+
+<!-- Workflow Progress Bar -->
+<div class="card mb-4">
+    <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="text-center flex-fill workflow-step" id="step1indicator">
+                <span class="badge bg-primary rounded-circle">1</span>
+                <small class="d-block mt-1">Load Data</small>
+            </div>
+            <div class="text-center flex-fill workflow-step" id="step2indicator">
+                <span class="badge bg-secondary rounded-circle">2</span>
+                <small class="d-block mt-1">Simulate Scenarios</small>
+            </div>
+            <div class="text-center flex-fill workflow-step" id="step3indicator">
+                <span class="badge bg-secondary rounded-circle">3</span>
+                <small class="d-block mt-1">Select Base Schedule</small>
+            </div>
+            <div class="text-center flex-fill workflow-step" id="step4indicator">
+                <span class="badge bg-secondary rounded-circle">4</span>
+                <small class="d-block mt-1">Review Requests</small>
+            </div>
+            <div class="text-center flex-fill workflow-step" id="step5indicator">
+                <span class="badge bg-secondary rounded-circle">5</span>
+                <small class="d-block mt-1">Generate Final</small>
+            </div>
+            <div class="text-center flex-fill workflow-step" id="step6indicator">
+                <span class="badge bg-secondary rounded-circle">6</span>
+                <small class="d-block mt-1">Publish</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 1 & 2: Simulate Base Schedule -->
+<div class="card mb-4" id="scenarioCard">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-bar-chart"></i> Base Schedule Scenarios</span>
+        <button class="btn btn-primary btn-sm" id="btnSimulate" onclick="simulateScenarios()">
+            <i class="bi bi-play-circle"></i> Simulate Base Schedule
+        </button>
+    </div>
+    <div class="card-body">
+        <div id="scenarioPlaceholder" class="text-center py-4 text-muted">
+            <i class="bi bi-diagram-3" style="font-size: 3rem;"></i>
+            <p class="mt-2">Click "Simulate Base Schedule" to run 3 scheduling scenarios.<br>
+            This simulates the schedule <strong>without</strong> special requests or hot list changes.</p>
+        </div>
+
+        <div id="scenarioResults" style="display: none;">
+            <div class="row" id="scenarioCards">
+                <!-- Scenario cards will be inserted here by JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Step 4: Review Special Requests -->
+<div class="card mb-4" id="requestsCard" style="display: none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-list-check"></i> Special Requests
+            <span class="badge bg-warning text-dark ms-1" id="pendingBadge">{{ pending_request_count }} pending</span>
+        </span>
+        <button class="btn btn-info btn-sm" onclick="simulateWithRequests()">
+            <i class="bi bi-lightning"></i> Simulate Impact
+        </button>
+    </div>
+    <div class="card-body">
+        <!-- Impact Analysis Results -->
+        <div id="impactResults" style="display: none;">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <div class="card border-warning">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-warning" id="impactDelayed">0</div>
+                            <small class="text-muted">Orders Delayed</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-danger">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-danger" id="impactNowLate">0</div>
+                            <small class="text-muted">Now Late</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-info">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0" id="impactDelayHours">0</div>
+                            <small class="text-muted">Total Delay (hrs)</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-primary">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0" id="impactHotCount">0</div>
+                            <small class="text-muted">Requests Applied</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Impacted orders table -->
+            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                <table class="table table-sm table-hover" id="impactTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>WO#</th>
+                            <th>Part</th>
+                            <th>Customer</th>
+                            <th>Delay (hrs)</th>
+                            <th>Status Change</th>
+                        </tr>
+                    </thead>
+                    <tbody id="impactTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pending Requests List -->
+        <h6 class="mt-3 mb-2">Pending Requests</h6>
+        <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+            <table class="table table-sm table-hover" id="requestsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>
+                            <input type="checkbox" id="selectAllRequests" onchange="toggleAllRequests(this)">
+                        </th>
+                        <th>WO#</th>
+                        <th>Type</th>
+                        <th>Priority</th>
+                        <th>Submitted By</th>
+                        <th>Submitted At</th>
+                        <th>Reason</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="requestsTableBody">
+                    <tr><td colspan="8" class="text-center text-muted">Loading requests...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="approveSelected()">
+                <i class="bi bi-check-circle"></i> Approve Selected
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="rejectSelected()">
+                <i class="bi bi-x-circle"></i> Reject Selected
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Step 5: Generate Final Schedule -->
+<div class="card mb-4" id="finalCard" style="display: none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar-check"></i> Final Schedule</span>
+        <button class="btn btn-warning btn-sm" onclick="generateFinal()">
+            <i class="bi bi-gear"></i> Generate Final Schedule
+        </button>
+    </div>
+    <div class="card-body">
+        <div id="finalPlaceholder" class="text-center py-3 text-muted">
+            <p>Review and approve special requests above, then generate the final schedule.</p>
+        </div>
+        <div id="finalResults" style="display: none;">
+            <div class="row mb-3">
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0" id="finalTotal">0</div>
+                            <small class="text-muted">Total Orders</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-success" id="finalOnTime">0</div>
+                            <small class="text-muted">On Time</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-danger" id="finalLate">0</div>
+                            <small class="text-muted">Late</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-warning" id="finalAtRisk">0</div>
+                            <small class="text-muted">At Risk</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0" id="finalTurnaround">-</div>
+                            <small class="text-muted">Avg Turnaround</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card">
+                        <div class="card-body text-center py-2">
+                            <div class="h4 mb-0 text-info" id="finalMode">-</div>
+                            <small class="text-muted">Schedule Mode</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <button class="btn btn-lg btn-success" onclick="publishSchedule()">
+                    <i class="bi bi-megaphone"></i> Publish Schedule
+                </button>
+                <p class="text-muted mt-2 small">Publishing makes this the working schedule for all users.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Special Request Form (collapsible) -->
+<div class="card mb-4">
+    <div class="card-header" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#newRequestForm">
+        <i class="bi bi-plus-circle"></i> Submit New Special Request
+        <i class="bi bi-chevron-down float-end"></i>
+    </div>
+    <div class="collapse" id="newRequestForm">
+        <div class="card-body">
+            <form id="specialRequestForm" onsubmit="submitRequest(event)">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Work Order #</label>
+                        <input type="text" class="form-control" id="reqWoNumber" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Request Type</label>
+                        <select class="form-select" id="reqType">
+                            <option value="hot_list">Hot List</option>
+                            <option value="expedite">Expedite</option>
+                            <option value="rubber_override">Rubber Override</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Priority</label>
+                        <select class="form-select" id="reqPriority">
+                            <option value="true">ASAP</option>
+                            <option value="false">Dated</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Need By Date</label>
+                        <input type="date" class="form-control" id="reqNeedByDate">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Rubber Override</label>
+                        <select class="form-select" id="reqRubberOverride">
+                            <option value="">None</option>
+                            <option value="XE">XE</option>
+                            <option value="HR">HR</option>
+                            <option value="XD">XD</option>
+                            <option value="XR">XR</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Reason / Comments</label>
+                        <input type="text" class="form-control" id="reqReason" placeholder="e.g., Customer urgent delivery request">
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-send"></i> Make Request
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .scenario-card {
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    .scenario-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15);
+    }
+    .scenario-card.selected {
+        border: 2px solid #0d6efd;
+        background-color: #f0f7ff;
+    }
+    .scenario-card .metric {
+        font-size: 1.5rem;
+        font-weight: bold;
+    }
+    .workflow-step .badge {
+        width: 28px;
+        height: 28px;
+        line-height: 18px;
+    }
+    .workflow-step.active .badge {
+        background-color: #0d6efd !important;
+    }
+    .workflow-step.completed .badge {
+        background-color: #198754 !important;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentStep = 1;
+    let scenarioData = {};
+    let selectedScenario = null;
+    let requestsData = [];
+
+    $(document).ready(function() {
+        loadPlannerStatus();
+        loadRequests();
+    });
+
+    // ========== Workflow State ==========
+
+    function loadPlannerStatus() {
+        fetch('/api/planner/status')
+            .then(r => r.json())
+            .then(data => {
+                // Update published info
+                if (data.published_at) {
+                    const dt = new Date(data.published_at);
+                    $('#publishedInfo').html(
+                        '<i class="bi bi-megaphone-fill text-success"></i> ' +
+                        'Published: ' + dt.toLocaleString() +
+                        ' by <strong>' + (data.published_by || '') + '</strong>' +
+                        ' (' + (data.published_mode || '') + ')'
+                    );
+                }
+
+                // Restore state if scenarios exist
+                if (data.has_scenarios) {
+                    updateStep(2);
+                }
+                if (data.base_scenario) {
+                    selectedScenario = data.base_scenario;
+                    updateStep(3);
+                }
+                if (data.has_final_schedule) {
+                    updateStep(5);
+                }
+            })
+            .catch(err => console.error('Failed to load planner status:', err));
+    }
+
+    function updateStep(step) {
+        currentStep = step;
+        $('#workflowStep').text('Step ' + step);
+
+        for (let i = 1; i <= 6; i++) {
+            const indicator = $(`#step${i}indicator`);
+            indicator.removeClass('active completed');
+            if (i < step) {
+                indicator.addClass('completed');
+                indicator.find('.badge').removeClass('bg-secondary bg-primary').addClass('bg-success');
+            } else if (i === step) {
+                indicator.addClass('active');
+                indicator.find('.badge').removeClass('bg-secondary bg-success').addClass('bg-primary');
+            } else {
+                indicator.find('.badge').removeClass('bg-primary bg-success').addClass('bg-secondary');
+            }
+        }
+
+        // Show/hide sections based on step
+        if (step >= 3) {
+            $('#requestsCard').show();
+        }
+        if (step >= 4) {
+            $('#finalCard').show();
+        }
+    }
+
+    // ========== Step 2: Simulate Scenarios ==========
+
+    function simulateScenarios() {
+        showLoading('Simulating 3 scheduling scenarios...');
+        $('#btnSimulate').prop('disabled', true);
+
+        fetch('/api/planner/simulate-scenarios', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(r => r.json())
+        .then(data => {
+            hideLoading();
+            $('#btnSimulate').prop('disabled', false);
+
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+
+            scenarioData = data.scenarios;
+            renderScenarioCards(data.scenarios);
+            updateStep(2);
+            showToast('3 scenarios simulated successfully!');
+        })
+        .catch(err => {
+            hideLoading();
+            $('#btnSimulate').prop('disabled', false);
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    function renderScenarioCards(scenarios) {
+        const container = $('#scenarioCards');
+        container.empty();
+
+        const configs = {
+            '4day_10h': {icon: 'bi-clock', color: 'primary'},
+            '4day_12h': {icon: 'bi-clock-fill', color: 'success'},
+            '5day_12h': {icon: 'bi-calendar-week', color: 'warning'}
+        };
+
+        for (const [key, scenario] of Object.entries(scenarios)) {
+            const cfg = configs[key] || {icon: 'bi-clock', color: 'secondary'};
+            const stats = scenario.stats;
+            const onTimeRate = stats.total_orders > 0
+                ? Math.round((stats.on_time / stats.total_orders) * 100)
+                : 0;
+
+            const isSelected = selectedScenario === key;
+
+            const card = `
+                <div class="col-md-4">
+                    <div class="card scenario-card ${isSelected ? 'selected' : ''}"
+                         onclick="selectScenario('${key}')" id="scenario-${key}">
+                        <div class="card-header bg-${cfg.color} text-white text-center">
+                            <i class="bi ${cfg.icon}"></i> ${scenario.label}
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-6 mb-2">
+                                    <div class="metric">${stats.total_orders}</div>
+                                    <small class="text-muted">Total Orders</small>
+                                </div>
+                                <div class="col-6 mb-2">
+                                    <div class="metric text-success">${onTimeRate}%</div>
+                                    <small class="text-muted">On Time Rate</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="text-success fw-bold">${stats.on_time}</div>
+                                    <small class="text-muted">On Time</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="text-danger fw-bold">${stats.late}</div>
+                                    <small class="text-muted">Late</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="text-warning fw-bold">${stats.at_risk}</div>
+                                    <small class="text-muted">At Risk</small>
+                                </div>
+                            </div>
+                            <hr>
+                            <div class="text-center">
+                                <span class="text-muted">Avg Turnaround:</span>
+                                <strong>${stats.avg_turnaround} days</strong>
+                            </div>
+                            <div class="text-center mt-2">
+                                <button class="btn btn-sm ${isSelected ? 'btn-primary' : 'btn-outline-primary'}"
+                                        onclick="event.stopPropagation(); selectScenario('${key}')">
+                                    ${isSelected ? '<i class="bi bi-check-circle"></i> Selected' : 'Select This Mode'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.append(card);
+        }
+
+        $('#scenarioPlaceholder').hide();
+        $('#scenarioResults').show();
+    }
+
+    function selectScenario(key) {
+        fetch('/api/planner/set-base-schedule', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({scenario: key})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+
+            selectedScenario = key;
+
+            // Re-render cards to show selection
+            if (scenarioData && Object.keys(scenarioData).length > 0) {
+                renderScenarioCards(scenarioData);
+            } else {
+                // Just update CSS classes
+                $('.scenario-card').removeClass('selected');
+                $(`#scenario-${key}`).addClass('selected');
+                $(`#scenario-${key} button`).removeClass('btn-outline-primary').addClass('btn-primary')
+                    .html('<i class="bi bi-check-circle"></i> Selected');
+            }
+
+            updateStep(3);
+            showToast(`Base schedule set: ${data.label}`);
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+
+    // ========== Step 4: Special Requests ==========
+
+    function loadRequests() {
+        fetch('/api/special-requests?status=pending')
+            .then(r => r.json())
+            .then(data => {
+                requestsData = data.requests || [];
+                renderRequestsTable(requestsData);
+                $('#pendingBadge').text(requestsData.length + ' pending');
+            })
+            .catch(err => console.error('Failed to load requests:', err));
+    }
+
+    function renderRequestsTable(requests) {
+        const tbody = $('#requestsTableBody');
+        tbody.empty();
+
+        if (requests.length === 0) {
+            tbody.append('<tr><td colspan="8" class="text-center text-muted">No pending special requests. Upload a Hot List file or submit a request below.</td></tr>');
+            return;
+        }
+
+        requests.forEach(req => {
+            const submitted = req.submitted_at ? new Date(req.submitted_at).toLocaleString() : '-';
+            const priorityBadge = req.is_asap
+                ? '<span class="badge bg-danger">ASAP</span>'
+                : '<span class="badge bg-warning text-dark">Dated</span>';
+            const typeBadge = {
+                'hot_list': '<span class="badge bg-danger">Hot List</span>',
+                'expedite': '<span class="badge bg-info">Expedite</span>',
+                'rubber_override': '<span class="badge bg-secondary">Rubber Override</span>'
+            }[req.request_type] || '<span class="badge bg-secondary">' + req.request_type + '</span>';
+
+            tbody.append(`
+                <tr>
+                    <td><input type="checkbox" class="request-checkbox" data-id="${req.id}"></td>
+                    <td><strong>${req.wo_number}</strong></td>
+                    <td>${typeBadge}</td>
+                    <td>${priorityBadge}</td>
+                    <td>${req.submitted_by || '-'}</td>
+                    <td>${submitted}</td>
+                    <td>${(req.reason || req.comments || '-').substring(0, 40)}</td>
+                    <td>
+                        <button class="btn btn-success btn-sm py-0 px-1" onclick="approveOne('${req.id}')" title="Approve">
+                            <i class="bi bi-check"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm py-0 px-1" onclick="rejectOne('${req.id}')" title="Reject">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>
+                </tr>
+            `);
+        });
+    }
+
+    function toggleAllRequests(checkbox) {
+        $('.request-checkbox').prop('checked', checkbox.checked);
+    }
+
+    function getSelectedRequestIds() {
+        return $('.request-checkbox:checked').map(function() { return $(this).data('id'); }).get();
+    }
+
+    function approveOne(id) {
+        processRequests({[id]: 'approved'});
+    }
+
+    function rejectOne(id) {
+        processRequests({[id]: 'rejected'});
+    }
+
+    function approveSelected() {
+        const ids = getSelectedRequestIds();
+        if (ids.length === 0) { showToast('No requests selected', 'error'); return; }
+        const approvals = {};
+        ids.forEach(id => approvals[id] = 'approved');
+        processRequests(approvals);
+    }
+
+    function rejectSelected() {
+        const ids = getSelectedRequestIds();
+        if (ids.length === 0) { showToast('No requests selected', 'error'); return; }
+        const approvals = {};
+        ids.forEach(id => approvals[id] = 'rejected');
+        processRequests(approvals);
+    }
+
+    function processRequests(approvals) {
+        fetch('/api/planner/approve-requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({approvals: approvals})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast(`Updated ${data.updated} request(s)`);
+            loadRequests();
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+
+    // ========== Simulate Impact ==========
+
+    function simulateWithRequests() {
+        if (!selectedScenario) {
+            showToast('Select a base schedule scenario first.', 'error');
+            return;
+        }
+
+        showLoading('Simulating impact of special requests...');
+
+        fetch('/api/planner/simulate-with-requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(r => r.json())
+        .then(data => {
+            hideLoading();
+            if (data.error) { showToast(data.error, 'error'); return; }
+
+            const impact = data.impact;
+            $('#impactDelayed').text(impact.total_delayed);
+            $('#impactNowLate').text(impact.orders_now_late);
+            $('#impactDelayHours').text(impact.total_delay_hours);
+            $('#impactHotCount').text(data.hot_list_count);
+
+            const tbody = $('#impactTableBody');
+            tbody.empty();
+            impact.items.forEach(item => {
+                const statusCell = item.status_change
+                    ? `<span class="badge bg-danger">${item.status_change}</span>`
+                    : '<span class="text-success">Still On Time</span>';
+                tbody.append(`
+                    <tr>
+                        <td><strong>${item.wo_number}</strong></td>
+                        <td>${item.part_number}</td>
+                        <td>${item.customer}</td>
+                        <td>${item.delay_hours}</td>
+                        <td>${statusCell}</td>
+                    </tr>
+                `);
+            });
+
+            $('#impactResults').show();
+            updateStep(4);
+            showToast('Impact simulation complete');
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    // ========== Step 5: Generate Final ==========
+
+    function generateFinal() {
+        if (!selectedScenario) {
+            showToast('Select a base schedule first.', 'error');
+            return;
+        }
+
+        showLoading('Generating final schedule with approved requests...');
+
+        fetch('/api/planner/generate-final', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(r => r.json())
+        .then(data => {
+            hideLoading();
+            if (data.error) { showToast(data.error, 'error'); return; }
+
+            const stats = data.stats;
+            $('#finalTotal').text(stats.total_orders);
+            $('#finalOnTime').text(stats.on_time);
+            $('#finalLate').text(stats.late);
+            $('#finalAtRisk').text(stats.at_risk);
+            $('#finalTurnaround').text(stats.avg_turnaround);
+            $('#finalMode').text(data.scenario_label);
+
+            $('#finalPlaceholder').hide();
+            $('#finalResults').show();
+            updateStep(5);
+            showToast(`Final schedule generated: ${stats.total_orders} orders (${data.approved_requests} requests applied)`);
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    // ========== Step 6: Publish ==========
+
+    function publishSchedule() {
+        if (!confirm('Publish this schedule? It will become the working schedule for all users.')) {
+            return;
+        }
+
+        showLoading('Publishing schedule...');
+
+        fetch('/api/planner/publish', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        })
+        .then(r => r.json())
+        .then(data => {
+            hideLoading();
+            if (data.error) { showToast(data.error, 'error'); return; }
+
+            updateStep(6);
+            showToast(`Schedule published! Mode: ${data.mode_label}, ${data.stats.total_orders} orders`);
+
+            // Refresh published info
+            const dt = new Date(data.published_at);
+            $('#publishedInfo').html(
+                '<i class="bi bi-megaphone-fill text-success"></i> ' +
+                'Published: ' + dt.toLocaleString() +
+                ' by <strong>' + data.published_by + '</strong>' +
+                ' (' + data.mode_label + ')'
+            );
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    // ========== Submit New Request ==========
+
+    function submitRequest(event) {
+        event.preventDefault();
+
+        const payload = {
+            wo_number: $('#reqWoNumber').val(),
+            request_type: $('#reqType').val(),
+            is_asap: $('#reqPriority').val() === 'true',
+            need_by_date: $('#reqNeedByDate').val() || null,
+            rubber_override: $('#reqRubberOverride').val() || null,
+            reason: $('#reqReason').val(),
+            comments: $('#reqReason').val(),
+        };
+
+        fetch('/api/special-requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Special request submitted');
+            $('#specialRequestForm')[0].reset();
+            loadRequests();
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+</script>
+{% endblock %}

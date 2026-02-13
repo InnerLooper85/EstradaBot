@@ -143,10 +143,28 @@ current_schedule = {
     'stats': {}
 }
 
+# Planner workflow state — holds draft scenarios and in-progress schedule
+planner_state = {
+    'scenarios': {},          # Results of 3-scenario simulation
+    'base_scenario': None,    # Which scenario was selected as base (e.g., '4day_12h')
+    'base_schedule': None,    # The base schedule result (without special requests)
+    'final_schedule': None,   # Schedule with approved requests applied
+    'simulated_at': None,     # When scenarios were last simulated
+    'loader': None,           # DataLoader instance (kept for re-running with requests)
+}
+
+# Published schedule — the "official" working schedule visible to all users
+published_schedule = {
+    'schedule_data': None,    # The published schedule orders/stats
+    'published_at': None,
+    'published_by': None,
+    'mode_label': None,       # e.g., '4 Days x 12 Hours'
+}
+
 
 def load_persisted_schedule():
     """Load schedule state from GCS on startup."""
-    global current_schedule
+    global current_schedule, published_schedule
     try:
         state = gcs_storage.load_schedule_state()
         if state:
@@ -157,15 +175,19 @@ def load_persisted_schedule():
             if state.get('modes'):
                 current_schedule['active_mode'] = state.get('active_mode', '4day')
                 current_schedule['modes'] = {}
-                for mode_key in ('4day', '5day'):
-                    mode_data = state['modes'].get(mode_key, {})
+                for mode_key in state['modes']:
+                    mode_data = state['modes'][mode_key]
                     current_schedule['modes'][mode_key] = {
                         'serialized_orders': mode_data.get('orders', []),
                         'stats': mode_data.get('stats', {}),
                         'reports': mode_data.get('reports', {})
                     }
-                # Backward compat: point to 4-day data
-                active = current_schedule['modes'].get('4day', {})
+                # Backward compat: point to active mode data
+                active_mode = state.get('active_mode', '4day')
+                active = current_schedule['modes'].get(active_mode, {})
+                if not active:
+                    # Fallback to first available mode
+                    active = next(iter(current_schedule['modes'].values()), {})
                 current_schedule['serialized_orders'] = active.get('serialized_orders', [])
                 current_schedule['stats'] = active.get('stats', {})
                 current_schedule['reports'] = active.get('reports', {})
@@ -176,6 +198,16 @@ def load_persisted_schedule():
                 current_schedule['serialized_orders'] = state.get('orders', [])
 
             print(f"[Startup] Loaded persisted schedule with {len(current_schedule.get('serialized_orders', []))} orders")
+
+        # Also load published schedule state
+        pub_state = gcs_storage.load_published_schedule()
+        if pub_state:
+            published_schedule['schedule_data'] = pub_state
+            published_schedule['published_at'] = datetime.fromisoformat(pub_state['published_at']) if pub_state.get('published_at') else None
+            published_schedule['published_by'] = pub_state.get('published_by')
+            published_schedule['mode_label'] = pub_state.get('mode_label')
+            print(f"[Startup] Loaded published schedule: {pub_state.get('mode_label')} by {pub_state.get('published_by')}")
+
     except Exception as e:
         print(f"[Startup] Failed to load persisted schedule: {e}")
 
@@ -332,6 +364,24 @@ def simulation_page():
     return render_template('simulation.html')
 
 
+@app.route('/planner')
+@login_required
+def planner_page():
+    """Planner workflow page — scenario comparison, request review, publish."""
+    if current_user.role not in ('admin', 'planner'):
+        flash('Only Planner and Admin users can access the planner workflow.', 'danger')
+        return redirect(url_for('index'))
+
+    # Load pending special requests
+    special_requests = gcs_storage.load_special_requests()
+    pending_requests = [r for r in special_requests if r.get('status') == 'pending']
+
+    return render_template('planner.html',
+                           planner_state=planner_state,
+                           published_schedule=published_schedule,
+                           pending_request_count=len(pending_requests))
+
+
 @app.route('/updates')
 @login_required
 def update_log_page():
@@ -410,10 +460,20 @@ def upload_file():
         return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
 
 
-def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp):
+def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
+                       shift_hours=12, skip_hot_list=False):
     """
-    Run the scheduler for a given working_days configuration.
-    Returns (scheduled_orders, baseline_orders, active_scheduler, reports, stats, serialized_orders).
+    Run the scheduler for a given working_days and shift_hours configuration.
+    Returns dict with orders, baseline_orders, reports, stats, serialized_orders.
+
+    Args:
+        loader: DataLoader with loaded input data
+        working_days: List of weekday ints (e.g., [0,1,2,3] for Mon-Thu)
+        mode_label: Label for report filenames (e.g., '4Day_10h')
+        temp_dir: Temp directory for report files
+        timestamp: Timestamp string for filenames
+        shift_hours: 10 or 12 hour shifts. Defaults to 12.
+        skip_hot_list: If True, only generate baseline schedule (no hot list processing)
     """
     from datetime import timedelta
     AT_RISK_BUFFER_DAYS = 2
@@ -423,21 +483,23 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp):
         orders=loader.orders,
         core_mapping=loader.core_mapping,
         core_inventory=loader.core_inventory,
-        working_days=working_days
+        working_days=working_days,
+        shift_hours=shift_hours
     )
 
     # Run baseline schedule (without hot list)
     baseline_orders = scheduler.schedule_orders()
     active_scheduler = scheduler
 
-    # If hot list exists, run with hot list
+    # If hot list exists and not skipping, run with hot list
     scheduled_orders = baseline_orders
-    if loader.hot_list_entries:
+    if not skip_hot_list and loader.hot_list_entries:
         scheduler_with_hot = DESScheduler(
             orders=loader.orders,
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
-            working_days=working_days
+            working_days=working_days,
+            shift_hours=shift_hours
         )
         scheduled_orders = scheduler_with_hot.schedule_orders(
             hot_list_entries=loader.hot_list_entries
@@ -587,13 +649,13 @@ def generate_schedule():
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        # Run 4-day schedule (Mon-Thu)
-        print("[Generate] Running 4-day schedule (Mon-Thu)...")
-        result_4day = _run_schedule_mode(loader, [0, 1, 2, 3], '4Day', temp_dir, timestamp)
+        # Run 4-day 12h schedule (Mon-Thu, default)
+        print("[Generate] Running 4-day 12h schedule (Mon-Thu)...")
+        result_4day = _run_schedule_mode(loader, [0, 1, 2, 3], '4Day', temp_dir, timestamp, shift_hours=12)
 
-        # Run 5-day schedule (Mon-Fri)
-        print("[Generate] Running 5-day schedule (Mon-Fri)...")
-        result_5day = _run_schedule_mode(loader, [0, 1, 2, 3, 4], '5Day', temp_dir, timestamp)
+        # Run 5-day 12h schedule (Mon-Fri)
+        print("[Generate] Running 5-day 12h schedule (Mon-Fri)...")
+        result_5day = _run_schedule_mode(loader, [0, 1, 2, 3, 4], '5Day', temp_dir, timestamp, shift_hours=12)
 
         # Clean up temp directory
         import shutil
@@ -754,17 +816,21 @@ def _serialize_orders_from_dicts(serialized_orders):
 @app.route('/api/schedule')
 @login_required
 def get_schedule():
-    """Get current schedule data as JSON. Accepts ?mode=4day|5day query parameter."""
-    mode = request.args.get('mode', '4day')
-    if mode not in ('4day', '5day'):
-        mode = '4day'
-
+    """Get current schedule data as JSON. Accepts ?mode= query parameter."""
     has_modes = current_schedule.get('modes')
+    active_mode = current_schedule.get('active_mode', '4day')
+    mode = request.args.get('mode', active_mode)
 
     # Resolve the data source for the requested mode
     mode_data = None
     if has_modes:
-        mode_data = current_schedule['modes'].get(mode, {})
+        mode_data = current_schedule['modes'].get(mode)
+        # Fallback: if requested mode not found, use active or first available
+        if not mode_data:
+            mode_data = current_schedule['modes'].get(active_mode)
+            if not mode_data and current_schedule['modes']:
+                mode = next(iter(current_schedule['modes']))
+                mode_data = current_schedule['modes'][mode]
 
     # Case 1: We have in-memory ScheduledOrder objects (just generated)
     if mode_data and mode_data.get('orders'):
@@ -861,13 +927,23 @@ def get_reports():
 @app.route('/api/feedback', methods=['POST'])
 @login_required
 def submit_feedback():
-    """Submit user feedback."""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-
-    message = data.get('message', '').strip()
-    category = data.get('category', '').strip()
+    """Submit user feedback with optional file attachment (screenshot or Excel)."""
+    # Support both JSON and multipart form data
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        message = request.form.get('message', '').strip()
+        category = request.form.get('category', '').strip()
+        priority = request.form.get('priority', 'Medium')
+        page = request.form.get('page', '')
+        uploaded_file = request.files.get('file')
+    else:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        message = data.get('message', '').strip()
+        category = data.get('category', '').strip()
+        priority = data.get('priority', 'Medium')
+        page = data.get('page', '')
+        uploaded_file = None
 
     if not message:
         return jsonify({'error': 'Message is required'}), 400
@@ -877,15 +953,56 @@ def submit_feedback():
     feedback_entry = {
         'username': current_user.username,
         'category': category,
-        'priority': data.get('priority', 'Medium'),
-        'page': data.get('page', ''),
+        'priority': priority,
+        'page': page,
         'message': message,
-        'submitted_at': datetime.now().isoformat()
+        'submitted_at': datetime.now().isoformat(),
+        'attachment': None
     }
+
+    # Handle file upload if present
+    if uploaded_file and uploaded_file.filename:
+        filename = secure_filename(uploaded_file.filename)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+
+        allowed_exts = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'xlsx', 'xls', 'csv'}
+        if ext not in allowed_exts:
+            return jsonify({'error': f'File type .{ext} not allowed. Accepted: {", ".join(allowed_exts)}'}), 400
+
+        # Check file size (25 MB max)
+        uploaded_file.seek(0, 2)
+        file_size = uploaded_file.tell()
+        uploaded_file.seek(0)
+        if file_size > 25 * 1024 * 1024:
+            return jsonify({'error': 'File too large. Maximum 25 MB.'}), 400
+
+        # Determine storage folder based on category
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if category == 'Example File':
+            # Example files go to a dedicated dev folder for analysis
+            storage_filename = f"example_{timestamp}_{filename}"
+            storage_folder = 'feedback/example_files'
+        else:
+            storage_filename = f"feedback_{timestamp}_{filename}"
+            storage_folder = 'feedback/attachments'
+
+        try:
+            gcs_storage.upload_file_object(uploaded_file, storage_filename, storage_folder)
+            feedback_entry['attachment'] = {
+                'filename': filename,
+                'stored_as': storage_filename,
+                'folder': storage_folder,
+                'size': file_size,
+                'type': ext,
+            }
+            print(f"[Feedback] Uploaded attachment: {storage_filename} to {storage_folder}")
+        except Exception as e:
+            print(f"[ERROR] Failed to upload feedback attachment: {e}")
+            return jsonify({'error': 'Failed to upload file'}), 500
 
     try:
         gcs_storage.save_feedback(feedback_entry)
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'has_attachment': feedback_entry['attachment'] is not None})
     except Exception as e:
         print(f"[ERROR] Failed to save feedback: {e}")
         return jsonify({'error': 'Failed to save feedback'}), 500
@@ -906,6 +1023,26 @@ def get_feedback():
     except Exception as e:
         print(f"[ERROR] Failed to load feedback: {e}")
         return jsonify({'feedback': []})
+
+
+@app.route('/api/feedback/download/<filename>')
+@login_required
+def download_feedback_file(filename):
+    """Download a feedback attachment from GCS."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    safe_filename = secure_filename(filename)
+    folder = request.args.get('folder', 'feedback/attachments')
+
+    # Only allow downloading from feedback folders
+    if not folder.startswith('feedback/'):
+        return jsonify({'error': 'Invalid folder'}), 400
+
+    temp_path = gcs_storage.download_to_temp(safe_filename, folder)
+    if temp_path:
+        return send_file(temp_path, as_attachment=True, download_name=safe_filename)
+    return jsonify({'error': 'File not found'}), 404
 
 
 @app.route('/api/simulation-data')
@@ -985,6 +1122,707 @@ def get_simulation_data():
         'stations': stations,
         'parts': parts
     })
+
+
+# ============== Planner Workflow API ==============
+
+
+# Scenario label map for display
+SCENARIO_CONFIGS = {
+    '4day_10h': {'working_days': [0, 1, 2, 3], 'shift_hours': 10, 'label': '4 Days x 10 Hours'},
+    '4day_12h': {'working_days': [0, 1, 2, 3], 'shift_hours': 12, 'label': '4 Days x 12 Hours'},
+    '5day_12h': {'working_days': [0, 1, 2, 3, 4], 'shift_hours': 12, 'label': '5 Days x 12 Hours'},
+}
+
+
+def _compute_stats_from_serialized(serialized_orders):
+    """Compute stats dict from a list of serialized order dicts."""
+    AT_RISK_BUFFER_DAYS = 2
+    total = len(serialized_orders)
+    on_time = sum(1 for o in serialized_orders if o.get('on_time_status') == 'On Time')
+    late = sum(1 for o in serialized_orders if o.get('on_time_status') == 'Late')
+    at_risk = sum(1 for o in serialized_orders if o.get('on_time_status') == 'At Risk')
+    turnarounds = [o['turnaround_days'] for o in serialized_orders if o.get('turnaround_days')]
+    avg_turnaround = round(sum(turnarounds) / len(turnarounds), 1) if turnarounds else 0
+    return {
+        'total_orders': total,
+        'on_time': on_time,
+        'late': late,
+        'at_risk': at_risk,
+        'avg_turnaround': avg_turnaround,
+    }
+
+
+@app.route('/api/planner/simulate-scenarios', methods=['POST'])
+@login_required
+def simulate_scenarios():
+    """
+    Step 2: Simulate base schedule across 3 scenarios.
+    Runs the DES engine 3 times (4d x 10h, 4d x 12h, 5d x 12h) WITHOUT hot list.
+    Returns comparison metrics for each scenario.
+    """
+    global planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can simulate schedules.'}), 403
+
+    try:
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp(prefix='estradabot_scenarios_')
+        print(f"[Planner] Downloading files from GCS to {temp_dir}")
+
+        local_paths = gcs_storage.download_files_for_processing(temp_dir)
+        loader = DataLoader(data_dir=temp_dir)
+        loader.load_all()
+
+        if not loader.orders:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        scenarios = {}
+
+        for scenario_key, config in SCENARIO_CONFIGS.items():
+            mode_label = scenario_key.replace('_', '_').upper()
+            print(f"[Planner] Running scenario: {config['label']}...")
+
+            result = _run_schedule_mode(
+                loader,
+                config['working_days'],
+                mode_label,
+                temp_dir,
+                timestamp,
+                shift_hours=config['shift_hours'],
+                skip_hot_list=True  # Base schedule = no hot list/special requests
+            )
+
+            scenarios[scenario_key] = {
+                'label': config['label'],
+                'stats': result['stats'],
+                'serialized_orders': result['serialized_orders'],
+                'orders': result['orders'],
+                'baseline_orders': result['baseline_orders'],
+                'reports': result['reports'],
+            }
+
+        # Store in planner state (keep loader for later re-runs with requests)
+        planner_state['scenarios'] = scenarios
+        planner_state['simulated_at'] = datetime.now()
+        planner_state['loader'] = loader
+        planner_state['base_scenario'] = None
+        planner_state['base_schedule'] = None
+        planner_state['final_schedule'] = None
+        planner_state['_temp_dir'] = temp_dir  # Keep for later report generation
+
+        # Return comparison metrics
+        comparison = {}
+        for key, scenario in scenarios.items():
+            comparison[key] = {
+                'label': scenario['label'],
+                'stats': scenario['stats'],
+            }
+
+        return jsonify({
+            'success': True,
+            'scenarios': comparison,
+            'simulated_at': planner_state['simulated_at'].isoformat()
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/planner/set-base-schedule', methods=['POST'])
+@login_required
+def set_base_schedule():
+    """
+    Step 4: Planner selects one of the 3 scenarios as the base schedule.
+    Expects JSON body: { "scenario": "4day_10h" | "4day_12h" | "5day_12h" }
+    """
+    global planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    scenario_key = data.get('scenario')
+
+    if scenario_key not in SCENARIO_CONFIGS:
+        return jsonify({'error': f'Invalid scenario: {scenario_key}'}), 400
+
+    if not planner_state.get('scenarios'):
+        return jsonify({'error': 'No scenarios simulated. Run "Simulate Base Schedule" first.'}), 400
+
+    scenario = planner_state['scenarios'].get(scenario_key)
+    if not scenario:
+        return jsonify({'error': f'Scenario {scenario_key} not found in results.'}), 400
+
+    planner_state['base_scenario'] = scenario_key
+    planner_state['base_schedule'] = scenario
+
+    return jsonify({
+        'success': True,
+        'selected': scenario_key,
+        'label': scenario['label'],
+        'stats': scenario['stats']
+    })
+
+
+@app.route('/api/special-requests', methods=['GET'])
+@login_required
+def get_special_requests():
+    """Get all special requests, optionally filtered by status."""
+    status_filter = request.args.get('status')
+    requests_list = gcs_storage.load_special_requests()
+
+    if status_filter:
+        requests_list = [r for r in requests_list if r.get('status') == status_filter]
+
+    return jsonify({'requests': requests_list})
+
+
+@app.route('/api/special-requests', methods=['POST'])
+@login_required
+def create_special_request():
+    """
+    Submit a new special request (hot list entry from the app).
+    Available to customer_service, planner, admin roles.
+    """
+    allowed_roles = ('admin', 'planner', 'customer_service')
+    if current_user.role not in allowed_roles:
+        return jsonify({'error': 'Your role cannot submit special requests.'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    wo_number = data.get('wo_number', '').strip()
+    if not wo_number:
+        return jsonify({'error': 'Work Order number is required'}), 400
+
+    request_entry = {
+        'id': f"SR-{datetime.now().strftime('%Y%m%d%H%M%S')}-{wo_number}",
+        'wo_number': wo_number,
+        'request_type': data.get('request_type', 'hot_list'),  # hot_list, expedite, rubber_override
+        'is_asap': data.get('is_asap', False),
+        'need_by_date': data.get('need_by_date'),
+        'rubber_override': data.get('rubber_override'),
+        'reason': data.get('reason', ''),
+        'comments': data.get('comments', ''),
+        'submitted_by': current_user.username,
+        'submitted_at': datetime.now().isoformat(),
+        'status': 'pending',  # pending, approved, rejected
+        'reviewed_by': None,
+        'reviewed_at': None,
+    }
+
+    # Load existing and append
+    all_requests = gcs_storage.load_special_requests()
+    all_requests.append(request_entry)
+    gcs_storage.save_special_requests(all_requests)
+
+    return jsonify({
+        'success': True,
+        'request': request_entry
+    })
+
+
+@app.route('/api/planner/simulate-with-requests', methods=['POST'])
+@login_required
+def simulate_with_requests():
+    """
+    Step 6: Simulate the base schedule with hot list + approved special requests applied.
+    Returns impact analysis showing how each request affects the schedule.
+    """
+    global planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if not planner_state.get('base_scenario'):
+        return jsonify({'error': 'No base schedule selected. Set a base scenario first.'}), 400
+
+    loader = planner_state.get('loader')
+    if not loader:
+        return jsonify({'error': 'Data loader not available. Re-run "Simulate Base Schedule".'}), 400
+
+    try:
+        scenario_key = planner_state['base_scenario']
+        config = SCENARIO_CONFIGS[scenario_key]
+
+        # Gather approved special requests and combine with hot list entries
+        all_requests = gcs_storage.load_special_requests()
+        pending_requests = [r for r in all_requests if r.get('status') == 'pending']
+
+        # Convert special requests to hot list entry format for the scheduler
+        combined_hot_list = list(loader.hot_list_entries) if loader.hot_list_entries else []
+
+        for req in pending_requests:
+            combined_hot_list.append({
+                'wo_number': req['wo_number'],
+                'is_asap': req.get('is_asap', False),
+                'need_by_date': req.get('need_by_date'),
+                'date_req_made': req.get('submitted_at'),
+                'rubber_override': req.get('rubber_override'),
+                'row_position': 9999,  # App requests after file-based entries
+                'comments': req.get('comments', ''),
+                'core': '',
+                'item': '',
+                'description': '',
+                'customer': '',
+                'source': 'app_request',
+                'request_id': req['id'],
+            })
+
+        # Run scheduler with combined hot list on the base scenario config
+        scheduler_with_requests = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=config['working_days'],
+            shift_hours=config['shift_hours']
+        )
+        scheduled_with_requests = scheduler_with_requests.schedule_orders(
+            hot_list_entries=combined_hot_list
+        )
+
+        # Get baseline orders (without requests) from the stored base schedule
+        baseline_orders = planner_state['base_schedule']['orders']
+
+        # Build impact analysis data
+        baseline_lookup = {o.wo_number: o for o in baseline_orders}
+        hot_list_wos = {e['wo_number'] for e in combined_hot_list}
+
+        impact_items = []
+        total_delay_hours = 0
+        orders_now_late = 0
+
+        for order in scheduled_with_requests:
+            if order.wo_number in hot_list_wos:
+                continue  # Skip the hot list orders themselves
+
+            baseline = baseline_lookup.get(order.wo_number)
+            if not baseline or not baseline.blast_date or not order.blast_date:
+                continue
+
+            delay_hours = (order.blast_date - baseline.blast_date).total_seconds() / 3600
+            if delay_hours > 0.5:
+                was_on_time = baseline.on_time
+                is_on_time = order.on_time
+                status_change = ''
+                if was_on_time and not is_on_time:
+                    status_change = 'NOW LATE'
+                    orders_now_late += 1
+
+                impact_items.append({
+                    'wo_number': order.wo_number,
+                    'part_number': order.part_number,
+                    'customer': order.customer,
+                    'delay_hours': round(delay_hours, 1),
+                    'was_on_time': was_on_time,
+                    'is_on_time': is_on_time,
+                    'status_change': status_change,
+                })
+                total_delay_hours += delay_hours
+
+        impact_items.sort(key=lambda x: -x['delay_hours'])
+
+        # Serialize request-applied orders for the final schedule
+        AT_RISK_BUFFER_DAYS = 2
+        serialized = []
+        for order in scheduled_with_requests:
+            deadline = order.basic_finish_date or order.promise_date
+            if not order.on_time:
+                status = 'Late'
+            elif deadline and order.completion_date:
+                days_buffer = (deadline - order.completion_date).days
+                status = 'At Risk' if days_buffer <= AT_RISK_BUFFER_DAYS else 'On Time'
+            else:
+                status = 'On Time'
+
+            serialized.append({
+                'wo_number': order.wo_number or '',
+                'serial_number': order.serial_number or '',
+                'part_number': order.part_number or '',
+                'description': order.description or '',
+                'customer': order.customer or '',
+                'assigned_core': order.assigned_core or '',
+                'rubber_type': order.rubber_type or '',
+                'priority': order.priority,
+                'blast_date': order.blast_date.isoformat() if order.blast_date else None,
+                'completion_date': order.completion_date.isoformat() if order.completion_date else None,
+                'promise_date': order.promise_date.isoformat() if order.promise_date else None,
+                'basic_finish_date': order.basic_finish_date.isoformat() if order.basic_finish_date else None,
+                'turnaround_days': order.turnaround_days,
+                'on_time': order.on_time,
+                'on_time_status': status,
+                'is_reline': order.is_reline,
+            })
+
+        stats = _compute_stats_from_serialized(serialized)
+        stats['hot_list_count'] = len(combined_hot_list)
+
+        # Store for final schedule generation
+        planner_state['_impact_orders'] = scheduled_with_requests
+        planner_state['_impact_serialized'] = serialized
+        planner_state['_impact_stats'] = stats
+        planner_state['_combined_hot_list'] = combined_hot_list
+
+        return jsonify({
+            'success': True,
+            'impact': {
+                'total_delayed': len(impact_items),
+                'total_delay_hours': round(total_delay_hours, 1),
+                'orders_now_late': orders_now_late,
+                'items': impact_items[:50],  # Top 50 most impacted
+            },
+            'stats_with_requests': stats,
+            'hot_list_count': len(combined_hot_list),
+            'file_hot_list_count': len(loader.hot_list_entries) if loader.hot_list_entries else 0,
+            'app_request_count': len(pending_requests),
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/planner/approve-requests', methods=['POST'])
+@login_required
+def approve_requests():
+    """
+    Step 7a: Planner approves or rejects individual special requests.
+    Expects JSON body: { "approvals": { "request_id": "approved"|"rejected", ... } }
+    """
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    approvals = data.get('approvals', {})
+
+    if not approvals:
+        return jsonify({'error': 'No approval decisions provided'}), 400
+
+    all_requests = gcs_storage.load_special_requests()
+    updated = 0
+
+    for req in all_requests:
+        req_id = req.get('id')
+        if req_id in approvals:
+            new_status = approvals[req_id]
+            if new_status in ('approved', 'rejected'):
+                req['status'] = new_status
+                req['reviewed_by'] = current_user.username
+                req['reviewed_at'] = datetime.now().isoformat()
+                updated += 1
+
+    gcs_storage.save_special_requests(all_requests)
+
+    return jsonify({
+        'success': True,
+        'updated': updated
+    })
+
+
+@app.route('/api/planner/generate-final', methods=['POST'])
+@login_required
+def generate_final_schedule():
+    """
+    Step 7b: Generate the final schedule with approved requests.
+    Re-runs the scheduler with only approved requests included.
+    """
+    global planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if not planner_state.get('base_scenario'):
+        return jsonify({'error': 'No base schedule set.'}), 400
+
+    loader = planner_state.get('loader')
+    if not loader:
+        return jsonify({'error': 'Data loader expired. Re-run scenario simulation.'}), 400
+
+    try:
+        scenario_key = planner_state['base_scenario']
+        config = SCENARIO_CONFIGS[scenario_key]
+
+        # Build hot list from file entries + approved app requests only
+        all_requests = gcs_storage.load_special_requests()
+        approved_requests = [r for r in all_requests if r.get('status') == 'approved']
+
+        combined_hot_list = list(loader.hot_list_entries) if loader.hot_list_entries else []
+        for req in approved_requests:
+            combined_hot_list.append({
+                'wo_number': req['wo_number'],
+                'is_asap': req.get('is_asap', False),
+                'need_by_date': req.get('need_by_date'),
+                'date_req_made': req.get('submitted_at'),
+                'rubber_override': req.get('rubber_override'),
+                'row_position': 9999,
+                'comments': req.get('comments', ''),
+                'core': '',
+                'item': '',
+                'description': '',
+                'customer': '',
+                'source': 'app_request',
+                'request_id': req['id'],
+            })
+
+        # Run final schedule
+        import tempfile
+        temp_dir = planner_state.get('_temp_dir', tempfile.mkdtemp(prefix='estradabot_final_'))
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # Run baseline (for impact analysis reports)
+        scheduler_baseline = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=config['working_days'],
+            shift_hours=config['shift_hours']
+        )
+        baseline_orders = scheduler_baseline.schedule_orders()
+
+        # Run with hot list
+        scheduler_final = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=config['working_days'],
+            shift_hours=config['shift_hours']
+        )
+        final_orders = scheduler_final.schedule_orders(hot_list_entries=combined_hot_list)
+
+        # Export reports
+        reports = {}
+        mode_label = f'Final_{scenario_key}'
+
+        master_filename = f'Master_Schedule_{mode_label}_{timestamp}.xlsx'
+        master_path = os.path.join(temp_dir, master_filename)
+        from exporters.excel_exporter import export_master_schedule, export_blast_schedule, export_core_schedule, export_pending_core_report
+        export_master_schedule(final_orders, master_path)
+        gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['master'] = master_filename
+
+        blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
+        blast_path = os.path.join(temp_dir, blast_filename)
+        export_blast_schedule(final_orders, blast_path)
+        gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['blast'] = blast_filename
+
+        # Impact analysis
+        if combined_hot_list:
+            hot_list_core_shortages = getattr(scheduler_final, 'hot_list_core_shortages', [])
+            impact_path = generate_impact_analysis(
+                final_orders, baseline_orders, combined_hot_list,
+                hot_list_core_shortages, temp_dir
+            )
+            impact_filename = os.path.basename(impact_path)
+            gcs_storage.upload_file(impact_path, impact_filename, gcs_storage.OUTPUTS_FOLDER)
+            reports['impact'] = impact_filename
+
+        # Serialize final orders
+        AT_RISK_BUFFER_DAYS = 2
+        serialized = []
+        on_time_count = late_count = at_risk_count = 0
+        for order in final_orders:
+            deadline = order.basic_finish_date or order.promise_date
+            if not order.on_time:
+                status = 'Late'
+                late_count += 1
+            elif deadline and order.completion_date:
+                days_buffer = (deadline - order.completion_date).days
+                if days_buffer <= AT_RISK_BUFFER_DAYS:
+                    status = 'At Risk'
+                    at_risk_count += 1
+                else:
+                    status = 'On Time'
+                    on_time_count += 1
+            else:
+                status = 'On Time'
+                on_time_count += 1
+
+            serialized.append({
+                'wo_number': order.wo_number or '',
+                'serial_number': order.serial_number or '',
+                'part_number': order.part_number or '',
+                'description': order.description or '',
+                'customer': order.customer or '',
+                'assigned_core': order.assigned_core or '',
+                'rubber_type': order.rubber_type or '',
+                'priority': order.priority,
+                'blast_date': order.blast_date.isoformat() if order.blast_date else None,
+                'completion_date': order.completion_date.isoformat() if order.completion_date else None,
+                'promise_date': order.promise_date.isoformat() if order.promise_date else None,
+                'basic_finish_date': order.basic_finish_date.isoformat() if order.basic_finish_date else None,
+                'turnaround_days': order.turnaround_days,
+                'on_time': order.on_time,
+                'on_time_status': status,
+                'is_reline': order.is_reline,
+            })
+
+        turnaround_times = [o.turnaround_days for o in final_orders if o.turnaround_days]
+        avg_turnaround = sum(turnaround_times) / len(turnaround_times) if turnaround_times else 0
+
+        stats = {
+            'total_orders': len(final_orders),
+            'on_time': on_time_count,
+            'late': late_count,
+            'at_risk': at_risk_count,
+            'avg_turnaround': round(avg_turnaround, 1),
+            'hot_list_count': len(combined_hot_list),
+        }
+
+        planner_state['final_schedule'] = {
+            'orders': final_orders,
+            'serialized_orders': serialized,
+            'stats': stats,
+            'reports': reports,
+            'scenario_key': scenario_key,
+            'scenario_label': config['label'],
+            'generated_at': datetime.now().isoformat(),
+            'approved_request_count': len(approved_requests),
+        }
+
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'reports': reports,
+            'scenario_label': config['label'],
+            'approved_requests': len(approved_requests),
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/planner/publish', methods=['POST'])
+@login_required
+def publish_schedule():
+    """
+    Step 8: Publish the final schedule as the working schedule.
+    Makes it visible to all users as the current schedule.
+    """
+    global current_schedule, published_schedule, planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    final = planner_state.get('final_schedule')
+    if not final:
+        return jsonify({'error': 'No final schedule to publish. Generate a final schedule first.'}), 400
+
+    now = datetime.now()
+
+    # Update the current_schedule (existing global state for backward compat)
+    current_schedule = {
+        'generated_at': now,
+        'published_by': current_user.username,
+        'active_mode': final['scenario_key'],
+        'modes': {
+            final['scenario_key']: {
+                'orders': final['orders'],
+                'serialized_orders': final['serialized_orders'],
+                'stats': final['stats'],
+                'reports': final['reports'],
+            }
+        },
+        'orders': final['orders'],
+        'baseline_orders': [],
+        'reports': final['reports'],
+        'stats': final['stats'],
+        'serialized_orders': final['serialized_orders'],
+    }
+
+    # Update published schedule state
+    published_schedule['schedule_data'] = final
+    published_schedule['published_at'] = now
+    published_schedule['published_by'] = current_user.username
+    published_schedule['mode_label'] = final['scenario_label']
+
+    # Persist to GCS — both the legacy state and the new published state
+    gcs_storage.save_schedule_state({
+        'generated_at': now.isoformat(),
+        'published_by': current_user.username,
+        'active_mode': final['scenario_key'],
+        'modes': {
+            final['scenario_key']: {
+                'orders': final['serialized_orders'],
+                'stats': final['stats'],
+                'reports': final['reports'],
+            }
+        },
+        'orders': final['serialized_orders'],
+        'stats': final['stats'],
+        'reports': final['reports'],
+    })
+
+    gcs_storage.save_published_schedule({
+        'published_at': now.isoformat(),
+        'published_by': current_user.username,
+        'mode_label': final['scenario_label'],
+        'scenario_key': final['scenario_key'],
+        'stats': final['stats'],
+        'orders': final['serialized_orders'],
+        'reports': final['reports'],
+        'approved_request_count': final.get('approved_request_count', 0),
+    })
+
+    # Clear planner workflow state
+    planner_state['final_schedule'] = None
+    planner_state['scenarios'] = {}
+    planner_state['base_scenario'] = None
+    planner_state['base_schedule'] = None
+
+    # Mark processed special requests as complete
+    all_requests = gcs_storage.load_special_requests()
+    for req in all_requests:
+        if req.get('status') == 'approved':
+            req['status'] = 'published'
+            req['published_at'] = now.isoformat()
+    gcs_storage.save_special_requests(all_requests)
+
+    return jsonify({
+        'success': True,
+        'published_at': now.isoformat(),
+        'published_by': current_user.username,
+        'mode_label': final['scenario_label'],
+        'stats': final['stats'],
+    })
+
+
+@app.route('/api/planner/status')
+@login_required
+def get_planner_status():
+    """Get current planner workflow status."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    # Count pending requests
+    all_requests = gcs_storage.load_special_requests()
+    pending_count = sum(1 for r in all_requests if r.get('status') == 'pending')
+
+    status = {
+        'has_scenarios': bool(planner_state.get('scenarios')),
+        'simulated_at': planner_state.get('simulated_at', '').isoformat() if planner_state.get('simulated_at') else None,
+        'base_scenario': planner_state.get('base_scenario'),
+        'base_scenario_label': SCENARIO_CONFIGS.get(planner_state.get('base_scenario', ''), {}).get('label'),
+        'has_final_schedule': bool(planner_state.get('final_schedule')),
+        'pending_request_count': pending_count,
+        'published_at': published_schedule.get('published_at', '').isoformat() if published_schedule.get('published_at') else None,
+        'published_by': published_schedule.get('published_by'),
+        'published_mode': published_schedule.get('mode_label'),
+    }
+
+    return jsonify(status)
 
 
 # ============== Error Handlers ==============

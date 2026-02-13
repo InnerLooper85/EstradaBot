@@ -21,20 +21,22 @@ import heapq
 @dataclass
 class WorkScheduleConfig:
     """
-    Work schedule configuration for 4-day work week with detailed breaks.
+    Work schedule configuration with configurable shift hours.
 
-    Schedule:
-    - 4-day work week: Mon-Thu (weekdays 0-3)
+    Supports:
+    - 10-hour shifts: Day only (5:00 AM - 3:00 PM), no night shift
     - 12-hour shifts: Day (5:00 AM - 5:00 PM), Night (5:00 PM - 5:00 AM)
+    - Configurable working days (e.g., Mon-Thu or Mon-Fri)
     - Handover: 30 minutes at shift start
-    - Breaks: 15 min at 9:00/15:00 (day), 21:00/3:00 (night)
-    - Lunch: 45 min at 11:00-11:45 (day), 23:00-23:45 (night)
+    - Breaks adjusted per shift length
     """
     working_days: List[int] = field(default_factory=lambda: [0, 1, 2, 3])  # Mon-Thu
+    shift_hours: int = 12  # 10 or 12 hour shifts
     shift1_start: int = 5   # 5 AM
-    shift1_end: int = 17    # 5 PM
+    shift1_end: int = 17    # 5 PM (computed from shift_hours if using factory)
     shift2_start: int = 17  # 5 PM
     shift2_end: int = 5     # 5 AM (next day)
+    has_night_shift: bool = True
     handover_minutes: int = 30
     takt_time_minutes: int = 30
 
@@ -49,6 +51,59 @@ class WorkScheduleConfig:
         (23, 0, 45),   # 11:00 PM - 45 min lunch
         (3, 0, 15),    # 3:00 AM - 15 min break
     ])
+
+    @classmethod
+    def create(cls, working_days: List[int] = None, shift_hours: int = 12) -> 'WorkScheduleConfig':
+        """
+        Factory method to create a properly configured WorkScheduleConfig.
+
+        Args:
+            working_days: List of weekday integers (0=Mon). Defaults to Mon-Thu.
+            shift_hours: 10 or 12 hour shifts. Defaults to 12.
+
+        Returns:
+            Configured WorkScheduleConfig instance.
+        """
+        if working_days is None:
+            working_days = [0, 1, 2, 3]
+
+        if shift_hours == 10:
+            # 10-hour shift: 5 AM to 3 PM, no night shift
+            return cls(
+                working_days=working_days,
+                shift_hours=10,
+                shift1_start=5,
+                shift1_end=15,     # 3 PM
+                shift2_start=15,   # Not used (no night shift)
+                shift2_end=5,      # Not used
+                has_night_shift=False,
+                day_breaks=[
+                    (9, 0, 15),    # 9:00 AM - 15 min break
+                    (11, 0, 45),   # 11:00 AM - 45 min lunch
+                ],
+                night_breaks=[],   # No night shift
+            )
+        else:
+            # 12-hour shift: 5 AM to 5 PM + night shift 5 PM to 5 AM
+            return cls(
+                working_days=working_days,
+                shift_hours=12,
+                shift1_start=5,
+                shift1_end=17,     # 5 PM
+                shift2_start=17,   # 5 PM
+                shift2_end=5,      # 5 AM
+                has_night_shift=True,
+                day_breaks=[
+                    (9, 0, 15),    # 9:00 AM - 15 min break
+                    (11, 0, 45),   # 11:00 AM - 45 min lunch
+                    (15, 0, 15),   # 3:00 PM - 15 min break
+                ],
+                night_breaks=[
+                    (21, 0, 15),   # 9:00 PM - 15 min break
+                    (23, 0, 45),   # 11:00 PM - 45 min lunch
+                    (3, 0, 15),    # 3:00 AM - 15 min break
+                ],
+            )
 
     def is_working_day(self, dt: datetime) -> bool:
         """Check if the date is a working day."""
@@ -69,8 +124,14 @@ class WorkScheduleConfig:
             day_end = day_start + timedelta(days=1)
             return [(day_start, day_end)]
 
-        # Day shift handover (5:00-5:30)
+        # Before day shift starts (midnight to shift1_start)
+        day_start = datetime.combine(date, datetime.min.time())
         shift1_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_start))
+        if not self.has_night_shift:
+            # Block time before day shift starts
+            periods.append((day_start, shift1_start))
+
+        # Day shift handover (5:00-5:30)
         periods.append((shift1_start, shift1_start + timedelta(minutes=self.handover_minutes)))
 
         # Day shift breaks
@@ -78,20 +139,26 @@ class WorkScheduleConfig:
             break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
             periods.append((break_start, break_start + timedelta(minutes=duration)))
 
-        # Night shift handover (5:00 PM - 5:30 PM)
-        shift2_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift2_start))
-        periods.append((shift2_start, shift2_start + timedelta(minutes=self.handover_minutes)))
+        if self.has_night_shift:
+            # Night shift handover (5:00 PM - 5:30 PM)
+            shift2_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift2_start))
+            periods.append((shift2_start, shift2_start + timedelta(minutes=self.handover_minutes)))
 
-        # Night shift breaks
-        for hour, minute, duration in self.night_breaks:
-            if hour >= self.shift2_start:
-                # Same day
-                break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
-            else:
-                # Next day (after midnight)
-                break_start = datetime.combine(date + timedelta(days=1),
-                                              datetime.min.time().replace(hour=hour, minute=minute))
-            periods.append((break_start, break_start + timedelta(minutes=duration)))
+            # Night shift breaks
+            for hour, minute, duration in self.night_breaks:
+                if hour >= self.shift2_start:
+                    # Same day
+                    break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
+                else:
+                    # Next day (after midnight)
+                    break_start = datetime.combine(date + timedelta(days=1),
+                                                  datetime.min.time().replace(hour=hour, minute=minute))
+                periods.append((break_start, break_start + timedelta(minutes=duration)))
+        else:
+            # No night shift: block from shift1_end to end of day (and overnight)
+            shift1_end_dt = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_end))
+            next_day = datetime.combine(date + timedelta(days=1), datetime.min.time())
+            periods.append((shift1_end_dt, next_day))
 
         return sorted(periods, key=lambda x: x[0])
 
@@ -103,19 +170,25 @@ class WorkScheduleConfig:
             dt: Datetime to check
             include_nights: If False, assumes 24-hour operations for CURE/QUENCH
         """
-        # Check if working day
         date = dt.date()
         hour = dt.hour
 
-        # For overnight checking, we need to check if yesterday was a working day
-        if hour < self.shift2_end:
-            # We're in the early morning - check if yesterday was a working day
-            yesterday = date - timedelta(days=1)
-            if yesterday.weekday() not in self.working_days:
-                return True
+        if self.has_night_shift:
+            # For overnight checking, we need to check if yesterday was a working day
+            if hour < self.shift2_end:
+                # We're in the early morning - check if yesterday was a working day
+                yesterday = date - timedelta(days=1)
+                if yesterday.weekday() not in self.working_days:
+                    return True
+            else:
+                # Normal day check
+                if date.weekday() not in self.working_days:
+                    return True
         else:
-            # Normal day check
+            # No night shift: early morning and after shift end are blocked
             if date.weekday() not in self.working_days:
+                return True
+            if hour < self.shift1_start or hour >= self.shift1_end:
                 return True
 
         # Check breaks and handover
@@ -138,17 +211,23 @@ class WorkScheduleConfig:
 
         for _ in range(max_iterations):
             if continue_during_breaks:
-                # Only check working days, not breaks
+                # Only check working days (and shift boundaries for no-night-shift)
                 date = current.date()
                 hour = current.hour
 
-                # Handle overnight - check if we're in valid working time
-                if hour < self.shift2_end:
-                    yesterday = date - timedelta(days=1)
-                    if yesterday.weekday() in self.working_days:
-                        return current
+                if self.has_night_shift:
+                    # Handle overnight - check if we're in valid working time
+                    if hour < self.shift2_end:
+                        yesterday = date - timedelta(days=1)
+                        if yesterday.weekday() in self.working_days:
+                            return current
+                    else:
+                        if date.weekday() in self.working_days:
+                            return current
                 else:
-                    if date.weekday() in self.working_days:
+                    # No night shift: valid during shift hours on working days
+                    if (date.weekday() in self.working_days and
+                            self.shift1_start <= hour < self.shift1_end):
                         return current
 
                 # Move to next working day
@@ -167,20 +246,32 @@ class WorkScheduleConfig:
         date = dt.date()
         hour = dt.hour
 
-        # If non-working day, go to next working day
-        if hour >= self.shift2_end:
-            if date.weekday() not in self.working_days:
-                return self._next_working_day_start(dt)
-        else:
-            yesterday = date - timedelta(days=1)
-            if yesterday.weekday() not in self.working_days:
-                # We're in early morning of a day after non-working day
-                if date.weekday() in self.working_days:
-                    # Jump to day shift start with handover
-                    return datetime.combine(date, datetime.min.time().replace(
-                        hour=self.shift1_start, minute=self.handover_minutes))
-                else:
+        # Non-working day check
+        if date.weekday() not in self.working_days:
+            return self._next_working_day_start(dt)
+
+        if self.has_night_shift:
+            # If non-working day, go to next working day
+            if hour >= self.shift2_end:
+                if date.weekday() not in self.working_days:
                     return self._next_working_day_start(dt)
+            else:
+                yesterday = date - timedelta(days=1)
+                if yesterday.weekday() not in self.working_days:
+                    # We're in early morning of a day after non-working day
+                    if date.weekday() in self.working_days:
+                        # Jump to day shift start with handover
+                        return datetime.combine(date, datetime.min.time().replace(
+                            hour=self.shift1_start, minute=self.handover_minutes))
+                    else:
+                        return self._next_working_day_start(dt)
+        else:
+            # No night shift: if outside shift hours, jump to next shift start
+            if hour < self.shift1_start:
+                return datetime.combine(date, datetime.min.time().replace(
+                    hour=self.shift1_start, minute=self.handover_minutes))
+            if hour >= self.shift1_end:
+                return self._next_working_day_start(dt)
 
         # Check blocked periods and skip past them
         blocked_periods = self.get_blocked_periods(dt)
@@ -251,18 +342,24 @@ class WorkScheduleConfig:
                 date = current.date()
                 hour = current.hour
 
-                if hour >= self.shift2_start or hour < self.shift2_end:
-                    # Night shift - goes until 5 AM next day
-                    if hour >= self.shift2_start:
-                        next_block = datetime.combine(date + timedelta(days=1),
-                                                     datetime.min.time().replace(hour=self.shift2_end))
+                if self.has_night_shift:
+                    if hour >= self.shift2_start or hour < self.shift2_end:
+                        # Night shift - goes until 5 AM next day
+                        if hour >= self.shift2_start:
+                            next_block = datetime.combine(date + timedelta(days=1),
+                                                         datetime.min.time().replace(hour=self.shift2_end))
+                        else:
+                            next_block = datetime.combine(date,
+                                                         datetime.min.time().replace(hour=self.shift2_end))
                     else:
+                        # Day shift - goes until night shift start
                         next_block = datetime.combine(date,
-                                                     datetime.min.time().replace(hour=self.shift2_end))
+                                                     datetime.min.time().replace(hour=self.shift2_start))
                 else:
-                    # Day shift - goes until 5 PM
+                    # No night shift: continuous processes run until shift1_end
+                    # then pause until next working day
                     next_block = datetime.combine(date,
-                                                 datetime.min.time().replace(hour=self.shift2_start))
+                                                 datetime.min.time().replace(hour=self.shift1_end))
 
                 minutes_until_block = (next_block - current).total_seconds() / 60
             else:
@@ -495,7 +592,8 @@ class DESScheduler:
 
     def __init__(self, orders: List[Dict], core_mapping: Dict,
                  core_inventory: Dict, operations: Dict = None,
-                 work_schedule: Any = None, working_days: List[int] = None):
+                 work_schedule: Any = None, working_days: List[int] = None,
+                 shift_hours: int = 12):
         """
         Initialize the DES scheduler.
 
@@ -506,17 +604,18 @@ class DESScheduler:
             operations: Operation definitions (optional, uses defaults)
             work_schedule: Legacy parameter, ignored (uses WorkScheduleConfig)
             working_days: Override working days (e.g., [0,1,2,3] for 4-day, [0,1,2,3,4] for 5-day)
+            shift_hours: Shift length in hours (10 or 12). Defaults to 12.
         """
         self.orders = orders
         self.core_mapping = core_mapping
         self.core_inventory = self._init_core_inventory(core_inventory)
         self.operations = operations or {}
 
-        # Create work schedule config
-        if working_days:
-            self.work_config = WorkScheduleConfig(working_days=working_days)
-        else:
-            self.work_config = WorkScheduleConfig()
+        # Create work schedule config using factory method
+        self.work_config = WorkScheduleConfig.create(
+            working_days=working_days,
+            shift_hours=shift_hours
+        )
 
         # Create stations and machines
         self.stations = create_stations()
