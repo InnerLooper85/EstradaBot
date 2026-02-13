@@ -157,6 +157,10 @@ def validate_orders(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Validate parsed orders for completeness and correctness.
 
+    Note: Missing WO# and part_number checks are handled during parsing
+    (rows without these fields are skipped), so we don't re-check here
+    to avoid duplicate error reports.
+
     Returns:
         Dictionary with validation results
     """
@@ -172,19 +176,9 @@ def validate_orders(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
     if duplicates:
         validation['warnings'].append(f"Duplicate WO numbers found: {duplicates[:5]}")
 
-    # Check for missing data
-    for i, order in enumerate(orders):
-        if not order.get('wo_number'):
-            validation['errors'].append(f"Order {i}: Missing WO#")
-            validation['is_valid'] = False
-
-        if not order.get('part_number'):
-            validation['errors'].append(f"Order {i} (WO# {order.get('wo_number')}): Missing part number")
-            validation['is_valid'] = False
-
     # Check part number format
-    new_count = sum(1 for o in orders if o['part_number'] and o['part_number'][0].isdigit())
-    reline_count = sum(1 for o in orders if o['part_number'] and o['part_number'].startswith('XN'))
+    new_count = sum(1 for o in orders if o.get('part_number') and o['part_number'][0].isdigit())
+    reline_count = sum(1 for o in orders if o.get('part_number') and o['part_number'].startswith('XN'))
     other_count = len(orders) - new_count - reline_count
 
     print(f"\nOrder breakdown:")
