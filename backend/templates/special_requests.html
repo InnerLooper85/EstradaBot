@@ -1,0 +1,675 @@
+{% extends 'base.html' %}
+
+{% block title %}Special Requests - EstradaBot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-exclamation-triangle"></i> Special Requests</h2>
+    <div>
+        <span class="badge bg-warning text-dark" id="pendingCount">0 pending</span>
+        <span class="badge bg-success" id="approvedCount">0 approved</span>
+        <span class="badge bg-danger" id="rejectedCount">0 rejected</span>
+    </div>
+</div>
+
+<!-- Submit New Request -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-plus-circle"></i> Submit New Request
+    </div>
+    <div class="card-body">
+        <!-- WO Search -->
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label fw-bold">Work Order #</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="woSearch" placeholder="Enter WO number..."
+                           autocomplete="off" oninput="searchWO(this.value)">
+                    <button class="btn btn-outline-secondary" type="button" onclick="searchWO($('#woSearch').val())">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+                <div id="woSearchResults" class="list-group position-absolute" style="z-index:100; display:none; max-height:200px; overflow-y:auto;"></div>
+                <small class="text-muted" id="woStatus"></small>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <div id="woModeIndicator" class="alert alert-light py-1 px-3 mb-0 w-100" style="display:none;">
+                    <span id="woModeText"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order details (pre-filled for Mode A) -->
+        <div id="orderDetails" style="display:none;" class="mb-3">
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label text-muted small">Part Number</label>
+                    <input type="text" class="form-control form-control-sm" id="detailPartNumber" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label text-muted small">Customer</label>
+                    <input type="text" class="form-control form-control-sm" id="detailCustomer" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label text-muted small">Current Rubber</label>
+                    <input type="text" class="form-control form-control-sm" id="detailRubber" readonly>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label text-muted small">Assigned Core</label>
+                    <input type="text" class="form-control form-control-sm" id="detailCore" readonly>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- Request Form -->
+        <form id="specialRequestForm" onsubmit="submitNewRequest(event)">
+            <input type="hidden" id="reqMatchedWO" value="">
+            <input type="hidden" id="reqIsMatched" value="false">
+
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Request Type</label>
+                    <select class="form-select" id="reqType" onchange="toggleRequestFields()">
+                        <option value="hot_list">Hot List (Priority Bump)</option>
+                        <option value="rubber_override">Redline (Rubber Substitution)</option>
+                    </select>
+                </div>
+
+                <!-- Hot List fields -->
+                <div class="col-md-3" id="priorityField">
+                    <label class="form-label">Priority</label>
+                    <select class="form-select" id="reqPriority" onchange="toggleDateField()">
+                        <option value="true">ASAP</option>
+                        <option value="false">Dated (Need-By)</option>
+                    </select>
+                </div>
+                <div class="col-md-3" id="needByField" style="display:none;">
+                    <label class="form-label">Need By Date</label>
+                    <input type="date" class="form-control" id="reqNeedByDate">
+                </div>
+
+                <!-- Redline fields -->
+                <div class="col-md-3" id="rubberField" style="display:none;">
+                    <label class="form-label">Rubber Override</label>
+                    <select class="form-select" id="reqRubberOverride">
+                        <option value="">Select...</option>
+                        <option value="XE">XE</option>
+                        <option value="HR">HR</option>
+                        <option value="XD">XD</option>
+                        <option value="XR">XR</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Reason / Comments</label>
+                    <input type="text" class="form-control" id="reqReason"
+                           placeholder="e.g., Customer urgent delivery request" required>
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button type="button" class="btn btn-outline-info flex-fill" onclick="previewImpact()" id="btnPreview">
+                        <i class="bi bi-lightning"></i> Preview Impact
+                    </button>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary flex-fill" id="btnSubmit">
+                        <i class="bi bi-send"></i> Make Request
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Impact Preview Section -->
+        <div id="impactPreview" style="display:none;" class="mt-3">
+            <div class="alert alert-info">
+                <h6 class="alert-heading"><i class="bi bi-lightning"></i> Impact Preview</h6>
+                <div class="row text-center mb-2">
+                    <div class="col-md-3">
+                        <strong class="text-warning" id="previewDelayed">0</strong>
+                        <small class="d-block text-muted">Orders Delayed</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong class="text-danger" id="previewNowLate">0</strong>
+                        <small class="d-block text-muted">Now Late</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong id="previewDelayHours">0</strong>
+                        <small class="d-block text-muted">Total Delay (hrs)</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong class="text-info" id="previewStatus">-</strong>
+                        <small class="d-block text-muted">Request Status</small>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead><tr><th>WO#</th><th>Part</th><th>Customer</th><th>Delay (hrs)</th><th>Status</th></tr></thead>
+                        <tbody id="previewTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Approval Queue -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check"></i> Request Queue</span>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary active" onclick="filterQueue('all', this)">All</button>
+            <button type="button" class="btn btn-outline-warning" onclick="filterQueue('pending', this)">Pending</button>
+            <button type="button" class="btn btn-outline-success" onclick="filterQueue('approved', this)">Approved</button>
+            <button type="button" class="btn btn-outline-danger" onclick="filterQueue('rejected', this)">Rejected</button>
+            <button type="button" class="btn btn-outline-primary" onclick="filterQueue('published', this)">Published</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover" id="queueTable">
+                <thead class="table-light">
+                    <tr>
+                        {% if user_can_approve %}
+                        <th><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
+                        {% endif %}
+                        <th>ID</th>
+                        <th>WO#</th>
+                        <th>Type</th>
+                        <th>Priority</th>
+                        <th>Rubber</th>
+                        <th>Submitted By</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        {% if user_can_approve %}
+                        <th>Actions</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody id="queueTableBody">
+                    <tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        {% if user_can_approve %}
+        <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="bulkApprove()">
+                <i class="bi bi-check-circle"></i> Approve Selected
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="showRejectModal()">
+                <i class="bi bi-x-circle"></i> Reject Selected
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Rejection Reason Modal -->
+{% if user_can_approve %}
+<div class="modal fade" id="rejectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Rejection Reason</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">Why are you rejecting this request?</label>
+                <textarea class="form-control" id="rejectReason" rows="3" required
+                          placeholder="e.g., Insufficient capacity this week"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="confirmReject()">
+                    <i class="bi bi-x-circle"></i> Reject
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .status-badge-pending { background-color: #ffc107; color: #212529; }
+    .status-badge-approved { background-color: #198754; }
+    .status-badge-rejected { background-color: #dc3545; }
+    .status-badge-published { background-color: #0d6efd; }
+    .mode-a-indicator { color: #198754; }
+    .mode-b-indicator { color: #fd7e14; }
+    #woSearchResults .list-group-item { cursor: pointer; font-size: 0.875rem; }
+    #woSearchResults .list-group-item:hover { background-color: #e9ecef; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const userCanApprove = {{ 'true' if user_can_approve else 'false' }};
+    let allOrders = [];      // Cached schedule data for WO autocomplete
+    let currentFilter = 'all';
+    let pendingRejectIds = [];
+
+    $(document).ready(function() {
+        loadScheduleData();
+        loadQueue();
+    });
+
+    // ========== WO Search / Autocomplete ==========
+
+    function loadScheduleData() {
+        fetch('/api/schedule')
+            .then(r => r.json())
+            .then(data => {
+                allOrders = data.orders || [];
+            })
+            .catch(() => { allOrders = []; });
+    }
+
+    let searchTimeout = null;
+    function searchWO(query) {
+        clearTimeout(searchTimeout);
+        if (!query || query.length < 2) {
+            $('#woSearchResults').hide();
+            resetOrderDetails();
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            const q = query.trim().toUpperCase();
+            const matches = allOrders.filter(o =>
+                o.wo_number && o.wo_number.toUpperCase().includes(q)
+            ).slice(0, 10);
+
+            const container = $('#woSearchResults');
+            container.empty();
+
+            if (matches.length > 0) {
+                matches.forEach(o => {
+                    container.append(
+                        `<a href="#" class="list-group-item list-group-item-action py-1 px-2"
+                            onclick="selectOrder('${o.wo_number}'); return false;">
+                            <strong>${o.wo_number}</strong>
+                            <span class="text-muted ms-2">${o.part_number || ''} — ${o.customer || ''}</span>
+                        </a>`
+                    );
+                });
+                container.show();
+            } else {
+                // No match — Mode B
+                container.hide();
+                setModeB(query.trim());
+            }
+        }, 250);
+    }
+
+    function selectOrder(woNumber) {
+        const order = allOrders.find(o => o.wo_number === woNumber);
+        if (!order) return;
+
+        $('#woSearch').val(woNumber);
+        $('#woSearchResults').hide();
+        $('#reqMatchedWO').val(woNumber);
+        $('#reqIsMatched').val('true');
+
+        // Pre-fill details
+        $('#detailPartNumber').val(order.part_number || '');
+        $('#detailCustomer').val(order.customer || '');
+        $('#detailRubber').val(order.rubber_type || '');
+        $('#detailCore').val(order.assigned_core || '');
+        $('#orderDetails').show();
+
+        // Mode A indicator
+        $('#woModeIndicator').show().removeClass('alert-warning').addClass('alert-success');
+        $('#woModeText').html('<i class="bi bi-check-circle mode-a-indicator"></i> <strong>Mode A</strong> — Modifying existing order <strong>' + woNumber + '</strong>');
+        $('#woStatus').html('<span class="text-success">Order found in current schedule</span>');
+    }
+
+    function setModeB(woNumber) {
+        $('#reqMatchedWO').val(woNumber);
+        $('#reqIsMatched').val('false');
+        $('#orderDetails').hide();
+
+        // Mode B indicator
+        $('#woModeIndicator').show().removeClass('alert-success').addClass('alert-warning');
+        $('#woModeText').html('<i class="bi bi-question-circle mode-b-indicator"></i> <strong>Mode B</strong> — New incoming request (WO not in system yet)');
+        $('#woStatus').html('<span class="text-warning">WO not found — will be stored as placeholder for future matching</span>');
+    }
+
+    function resetOrderDetails() {
+        $('#orderDetails').hide();
+        $('#woModeIndicator').hide();
+        $('#woStatus').text('');
+        $('#reqMatchedWO').val('');
+        $('#reqIsMatched').val('false');
+    }
+
+    // Hide autocomplete when clicking outside
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#woSearch, #woSearchResults').length) {
+            $('#woSearchResults').hide();
+        }
+    });
+
+    // ========== Form Toggle Logic ==========
+
+    function toggleRequestFields() {
+        const type = $('#reqType').val();
+        if (type === 'rubber_override') {
+            $('#rubberField').show();
+            $('#priorityField').hide();
+            $('#needByField').hide();
+        } else {
+            $('#rubberField').hide();
+            $('#priorityField').show();
+            toggleDateField();
+        }
+    }
+
+    function toggleDateField() {
+        if ($('#reqPriority').val() === 'false') {
+            $('#needByField').show();
+        } else {
+            $('#needByField').hide();
+        }
+    }
+
+    // ========== Impact Preview ==========
+
+    function previewImpact() {
+        const woNumber = $('#woSearch').val().trim();
+        if (!woNumber) {
+            showToast('Enter a Work Order number first.', 'error');
+            return;
+        }
+
+        const payload = buildRequestPayload();
+        if (!payload) return;
+
+        $('#btnPreview').prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Simulating...');
+
+        fetch('/api/special-requests/impact-preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            $('#btnPreview').prop('disabled', false).html('<i class="bi bi-lightning"></i> Preview Impact');
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+
+            const impact = data.impact;
+            $('#previewDelayed').text(impact.total_delayed);
+            $('#previewNowLate').text(impact.orders_now_late);
+            $('#previewDelayHours').text(impact.total_delay_hours);
+            $('#previewStatus').text(data.has_published_schedule ? 'vs Published' : 'vs Current');
+
+            const tbody = $('#previewTableBody');
+            tbody.empty();
+            if (impact.items && impact.items.length > 0) {
+                impact.items.slice(0, 20).forEach(item => {
+                    const statusCell = item.status_change
+                        ? `<span class="badge bg-danger">${item.status_change}</span>`
+                        : '<span class="text-success">OK</span>';
+                    tbody.append(`<tr>
+                        <td>${item.wo_number}</td>
+                        <td>${item.part_number}</td>
+                        <td>${item.customer}</td>
+                        <td>${item.delay_hours}</td>
+                        <td>${statusCell}</td>
+                    </tr>`);
+                });
+            } else {
+                tbody.append('<tr><td colspan="5" class="text-center text-muted">No significant impact detected</td></tr>');
+            }
+
+            $('#impactPreview').show();
+        })
+        .catch(err => {
+            $('#btnPreview').prop('disabled', false).html('<i class="bi bi-lightning"></i> Preview Impact');
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    // ========== Submit Request ==========
+
+    function buildRequestPayload() {
+        const woNumber = $('#woSearch').val().trim();
+        if (!woNumber) {
+            showToast('Work Order number is required.', 'error');
+            return null;
+        }
+
+        const requestType = $('#reqType').val();
+        const payload = {
+            wo_number: woNumber,
+            request_type: requestType,
+            reason: $('#reqReason').val(),
+            comments: $('#reqReason').val(),
+            matched: $('#reqIsMatched').val() === 'true',
+        };
+
+        if (requestType === 'hot_list') {
+            payload.is_asap = $('#reqPriority').val() === 'true';
+            payload.need_by_date = $('#reqNeedByDate').val() || null;
+        } else if (requestType === 'rubber_override') {
+            payload.rubber_override = $('#reqRubberOverride').val();
+            if (!payload.rubber_override) {
+                showToast('Select a rubber type for redline requests.', 'error');
+                return null;
+            }
+            payload.is_asap = false;
+        }
+
+        return payload;
+    }
+
+    function submitNewRequest(event) {
+        event.preventDefault();
+
+        const payload = buildRequestPayload();
+        if (!payload) return;
+
+        $('#btnSubmit').prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Submitting...');
+
+        fetch('/api/special-requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            $('#btnSubmit').prop('disabled', false).html('<i class="bi bi-send"></i> Make Request');
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+
+            const matchedLabel = payload.matched ? '(Mode A — existing order)' : '(Mode B — placeholder)';
+            showToast(`Request submitted for WO ${payload.wo_number} ${matchedLabel}`);
+
+            // Reset form
+            $('#specialRequestForm')[0].reset();
+            $('#woSearch').val('');
+            resetOrderDetails();
+            $('#impactPreview').hide();
+            toggleRequestFields();
+
+            // Reload queue
+            loadQueue();
+        })
+        .catch(err => {
+            $('#btnSubmit').prop('disabled', false).html('<i class="bi bi-send"></i> Make Request');
+            showToast('Error: ' + err.message, 'error');
+        });
+    }
+
+    // ========== Approval Queue ==========
+
+    function loadQueue() {
+        fetch('/api/special-requests')
+            .then(r => r.json())
+            .then(data => {
+                const requests = data.requests || [];
+
+                // Update counts
+                const counts = {pending: 0, approved: 0, rejected: 0, published: 0};
+                requests.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+                $('#pendingCount').text(counts.pending + ' pending');
+                $('#approvedCount').text(counts.approved + ' approved');
+                $('#rejectedCount').text(counts.rejected + ' rejected');
+
+                renderQueue(requests);
+            })
+            .catch(err => console.error('Failed to load queue:', err));
+    }
+
+    function renderQueue(requests) {
+        const filtered = currentFilter === 'all' ? requests :
+            requests.filter(r => r.status === currentFilter);
+
+        const tbody = $('#queueTableBody');
+        tbody.empty();
+
+        if (filtered.length === 0) {
+            const colspan = userCanApprove ? 11 : 9;
+            tbody.append(`<tr><td colspan="${colspan}" class="text-center text-muted">No requests found</td></tr>`);
+            return;
+        }
+
+        // Sort newest first
+        filtered.sort((a, b) => (b.submitted_at || '').localeCompare(a.submitted_at || ''));
+
+        filtered.forEach(req => {
+            const submitted = req.submitted_at ? new Date(req.submitted_at).toLocaleString() : '-';
+            const statusClass = 'status-badge-' + (req.status || 'pending');
+            const typeBadges = {
+                'hot_list': '<span class="badge bg-danger">Hot List</span>',
+                'expedite': '<span class="badge bg-info">Expedite</span>',
+                'rubber_override': '<span class="badge bg-secondary">Redline</span>',
+            };
+            const typeBadge = typeBadges[req.request_type] || `<span class="badge bg-secondary">${req.request_type}</span>`;
+            const priorityBadge = req.is_asap
+                ? '<span class="badge bg-danger">ASAP</span>'
+                : (req.need_by_date ? `<span class="badge bg-warning text-dark">${req.need_by_date}</span>` : '<span class="badge bg-light text-dark">Normal</span>');
+            const rubber = req.rubber_override || '-';
+            const matchedIcon = req.matched === false
+                ? '<i class="bi bi-question-circle text-warning" title="Unmatched placeholder (Mode B)"></i> '
+                : '';
+            const reason = (req.reason || req.comments || '-').substring(0, 50);
+            const reviewInfo = req.reviewed_by
+                ? `<br><small class="text-muted">by ${req.reviewed_by}</small>` : '';
+            const rejectReason = req.rejection_reason
+                ? `<br><small class="text-danger">${req.rejection_reason}</small>` : '';
+
+            let row = '<tr>';
+            if (userCanApprove) {
+                const canCheck = req.status === 'pending';
+                row += `<td>${canCheck ? '<input type="checkbox" class="queue-checkbox" data-id="' + req.id + '">' : ''}</td>`;
+            }
+            row += `
+                <td><small class="text-muted">${(req.id || '').substring(0, 15)}</small></td>
+                <td>${matchedIcon}<strong>${req.wo_number}</strong></td>
+                <td>${typeBadge}</td>
+                <td>${priorityBadge}</td>
+                <td>${rubber}</td>
+                <td>${req.submitted_by || '-'}</td>
+                <td><small>${submitted}</small></td>
+                <td><span class="badge ${statusClass}">${req.status}</span>${reviewInfo}${rejectReason}</td>
+                <td><small>${reason}</small></td>
+            `;
+
+            if (userCanApprove) {
+                if (req.status === 'pending') {
+                    row += `<td>
+                        <button class="btn btn-success btn-sm py-0 px-1" onclick="approveOne('${req.id}')" title="Approve">
+                            <i class="bi bi-check"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm py-0 px-1" onclick="rejectOne('${req.id}')" title="Reject">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>`;
+                } else {
+                    row += '<td></td>';
+                }
+            }
+            row += '</tr>';
+            tbody.append(row);
+        });
+    }
+
+    function filterQueue(status, btn) {
+        currentFilter = status;
+        $('.btn-group .btn').removeClass('active');
+        $(btn).addClass('active');
+        loadQueue();
+    }
+
+    function toggleAll(checkbox) {
+        $('.queue-checkbox').prop('checked', checkbox.checked);
+    }
+
+    function getSelectedIds() {
+        return $('.queue-checkbox:checked').map(function() { return $(this).data('id'); }).get();
+    }
+
+    // ========== Approve / Reject ==========
+
+    function approveOne(id) {
+        processApprovals({[id]: 'approved'});
+    }
+
+    function rejectOne(id) {
+        pendingRejectIds = [id];
+        new bootstrap.Modal($('#rejectModal')[0]).show();
+    }
+
+    function bulkApprove() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) { showToast('No requests selected', 'error'); return; }
+        const approvals = {};
+        ids.forEach(id => approvals[id] = 'approved');
+        processApprovals(approvals);
+    }
+
+    function showRejectModal() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) { showToast('No requests selected', 'error'); return; }
+        pendingRejectIds = ids;
+        new bootstrap.Modal($('#rejectModal')[0]).show();
+    }
+
+    function confirmReject() {
+        const reason = $('#rejectReason').val().trim();
+        if (!reason) { showToast('Please provide a rejection reason', 'error'); return; }
+
+        const approvals = {};
+        pendingRejectIds.forEach(id => approvals[id] = 'rejected');
+        processApprovals(approvals, reason);
+        bootstrap.Modal.getInstance($('#rejectModal')[0]).hide();
+        $('#rejectReason').val('');
+    }
+
+    function processApprovals(approvals, rejectionReason) {
+        fetch('/api/planner/approve-requests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({approvals: approvals, rejection_reason: rejectionReason || ''})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast(`Updated ${data.updated} request(s)`);
+            loadQueue();
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+</script>
+{% endblock %}

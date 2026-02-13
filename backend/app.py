@@ -382,11 +382,74 @@ def planner_page():
                            pending_request_count=len(pending_requests))
 
 
+@app.route('/special-requests')
+@login_required
+def special_requests_page():
+    """Dedicated Special Requests page — submit, review, approve/reject."""
+    user_can_approve = current_user.role in ('admin', 'planner')
+    return render_template('special_requests.html', user_can_approve=user_can_approve)
+
+
 @app.route('/updates')
 @login_required
 def update_log_page():
     """Update log and feedback page."""
     return render_template('update_log.html')
+
+
+# ============== Reconciliation Helpers ==============
+
+
+def _reconcile_special_requests(filename: str, file_type: str) -> int:
+    """
+    After a file upload, check for unmatched (Mode B) special requests
+    whose WO numbers now appear in the uploaded data.
+    Returns the number of newly matched requests.
+    """
+    try:
+        all_requests = gcs_storage.load_special_requests()
+        unmatched = [r for r in all_requests if r.get('matched') is False
+                     and r.get('status') == 'pending']
+        if not unmatched:
+            return 0
+
+        # Extract WO numbers from the uploaded file
+        uploaded_wos = set()
+        import tempfile
+        temp_dir = tempfile.mkdtemp(prefix='estradabot_reconcile_')
+        local_paths = gcs_storage.download_files_for_processing(temp_dir)
+
+        # Parse WO numbers from all available data
+        try:
+            loader = DataLoader(local_paths)
+            if loader.orders:
+                uploaded_wos = {o.wo_number for o in loader.orders if o.wo_number}
+        except Exception as e:
+            print(f"[Reconcile] Could not parse uploaded data: {e}")
+            return 0
+
+        # Match unmatched requests
+        matched_count = 0
+        for req in all_requests:
+            if req.get('matched') is False and req.get('status') == 'pending':
+                if req['wo_number'] in uploaded_wos:
+                    req['matched'] = True
+                    req['matched_at'] = datetime.now().isoformat()
+                    matched_count += 1
+                    print(f"[Reconcile] Matched special request {req['id']} to WO {req['wo_number']}")
+
+        if matched_count > 0:
+            gcs_storage.save_special_requests(all_requests)
+            print(f"[Reconcile] {matched_count} request(s) matched from upload of {filename}")
+
+        # Clean up temp dir
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return matched_count
+    except Exception as e:
+        print(f"[Reconcile] Error during reconciliation: {e}")
+        return 0
 
 
 # ============== API Routes ==============
@@ -449,11 +512,19 @@ def upload_file():
         else:
             gcs_storage.upload_file_object(file, filename)
 
-        flash(f'File "{filename}" uploaded successfully!', 'success')
+        # Reconcile unmatched special requests (Mode B placeholders)
+        matched_count = _reconcile_special_requests(filename, file_type)
+
+        flash_msg = f'File "{filename}" uploaded successfully!'
+        if matched_count > 0:
+            flash_msg += f' {matched_count} pending special request(s) matched to new data.'
+        flash(flash_msg, 'success')
+
         return jsonify({
             'success': True,
             'filename': filename,
-            'type': file_type
+            'type': file_type,
+            'matched_requests': matched_count,
         })
     except Exception as e:
         print(f"[ERROR] Failed to upload to GCS: {e}")
@@ -1315,9 +1386,11 @@ def create_special_request():
         'comments': data.get('comments', ''),
         'submitted_by': current_user.username,
         'submitted_at': datetime.now().isoformat(),
-        'status': 'pending',  # pending, approved, rejected
+        'status': 'pending',  # pending, approved, rejected, published
         'reviewed_by': None,
         'reviewed_at': None,
+        'rejection_reason': None,
+        'matched': data.get('matched', True),  # False = Mode B placeholder (WO not in system)
     }
 
     # Load existing and append
@@ -1329,6 +1402,140 @@ def create_special_request():
         'success': True,
         'request': request_entry
     })
+
+
+@app.route('/api/special-requests/impact-preview', methods=['POST'])
+@login_required
+def impact_preview():
+    """
+    Preview the scheduling impact of a single request before submitting.
+    Uses the published schedule (or current schedule) as baseline,
+    then re-runs DES with the proposed request added.
+    Returns impact data showing which orders are affected.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    wo_number = data.get('wo_number', '').strip()
+    if not wo_number:
+        return jsonify({'error': 'Work Order number is required'}), 400
+
+    # Check if we have a published or current schedule to use as baseline
+    pub = gcs_storage.load_published_schedule()
+    has_published = pub is not None
+
+    # We need the loader and a scenario config to re-run the scheduler
+    # Use the planner_state loader if available, otherwise try to create one
+    loader = planner_state.get('loader')
+    if not loader:
+        # Try to create a loader from uploaded files
+        import tempfile
+        temp_dir = tempfile.mkdtemp(prefix='estradabot_preview_')
+        try:
+            local_paths = gcs_storage.download_files_for_processing(temp_dir)
+            loader = DataLoader(local_paths)
+            if not loader.orders:
+                return jsonify({'error': 'No schedule data available. Upload files and generate a schedule first.'}), 400
+        except Exception as e:
+            return jsonify({'error': f'Could not load data for simulation: {str(e)}'}), 500
+
+    # Determine which scenario config to use
+    scenario_key = planner_state.get('base_scenario')
+    if not scenario_key and pub:
+        scenario_key = pub.get('scenario_key')
+    if not scenario_key:
+        scenario_key = '4day_12h'  # Sensible default
+
+    config = SCENARIO_CONFIGS.get(scenario_key, SCENARIO_CONFIGS['4day_12h'])
+
+    try:
+        # Run baseline (without this request)
+        scheduler_baseline = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=config['working_days'],
+            shift_hours=config['shift_hours']
+        )
+        baseline_orders = scheduler_baseline.schedule_orders()
+
+        # Build a single-entry hot list for the proposed request
+        preview_hot_list = [{
+            'wo_number': wo_number,
+            'is_asap': data.get('is_asap', False),
+            'need_by_date': data.get('need_by_date'),
+            'date_req_made': datetime.now().isoformat(),
+            'rubber_override': data.get('rubber_override'),
+            'row_position': 9999,
+            'comments': data.get('reason', ''),
+            'core': '',
+            'item': '',
+            'description': '',
+            'customer': '',
+            'source': 'impact_preview',
+        }]
+
+        # Run with the proposed request
+        scheduler_with = DESScheduler(
+            orders=loader.orders,
+            core_mapping=loader.core_mapping,
+            core_inventory=loader.core_inventory,
+            working_days=config['working_days'],
+            shift_hours=config['shift_hours']
+        )
+        orders_with = scheduler_with.schedule_orders(hot_list_entries=preview_hot_list)
+
+        # Build impact analysis
+        baseline_lookup = {o.wo_number: o for o in baseline_orders}
+        impact_items = []
+        total_delay_hours = 0
+        orders_now_late = 0
+
+        for order in orders_with:
+            if order.wo_number == wo_number:
+                continue
+
+            baseline = baseline_lookup.get(order.wo_number)
+            if not baseline or not baseline.blast_date or not order.blast_date:
+                continue
+
+            delay_hours = (order.blast_date - baseline.blast_date).total_seconds() / 3600
+            if delay_hours > 0.5:
+                was_on_time = baseline.on_time
+                is_on_time = order.on_time
+                status_change = ''
+                if was_on_time and not is_on_time:
+                    status_change = 'NOW LATE'
+                    orders_now_late += 1
+
+                impact_items.append({
+                    'wo_number': order.wo_number,
+                    'part_number': order.part_number,
+                    'customer': order.customer,
+                    'delay_hours': round(delay_hours, 1),
+                    'status_change': status_change,
+                })
+                total_delay_hours += delay_hours
+
+        impact_items.sort(key=lambda x: -x['delay_hours'])
+
+        return jsonify({
+            'success': True,
+            'has_published_schedule': has_published,
+            'scenario': scenario_key,
+            'impact': {
+                'total_delayed': len(impact_items),
+                'total_delay_hours': round(total_delay_hours, 1),
+                'orders_now_late': orders_now_late,
+                'items': impact_items[:20],
+            },
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Impact simulation failed: {str(e)}'}), 500
 
 
 @app.route('/api/planner/simulate-with-requests', methods=['POST'])
@@ -1504,6 +1711,7 @@ def approve_requests():
 
     data = request.get_json()
     approvals = data.get('approvals', {})
+    rejection_reason = data.get('rejection_reason', '')
 
     if not approvals:
         return jsonify({'error': 'No approval decisions provided'}), 400
@@ -1519,6 +1727,8 @@ def approve_requests():
                 req['status'] = new_status
                 req['reviewed_by'] = current_user.username
                 req['reviewed_at'] = datetime.now().isoformat()
+                if new_status == 'rejected' and rejection_reason:
+                    req['rejection_reason'] = rejection_reason
                 updated += 1
 
     gcs_storage.save_special_requests(all_requests)

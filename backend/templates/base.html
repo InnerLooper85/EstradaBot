@@ -223,6 +223,9 @@
                     <a class="nav-link {% if request.endpoint == 'simulation_page' %}active{% endif %}" href="/simulation">
                         <i class="bi bi-play-circle"></i> Simulation
                     </a>
+                    <a class="nav-link {% if request.endpoint == 'special_requests_page' %}active{% endif %}" href="/special-requests">
+                        <i class="bi bi-exclamation-triangle"></i> Special Requests
+                    </a>
                     <hr class="mx-3">
                     {% if current_user.is_authenticated and current_user.role in ['admin', 'planner'] %}
                     <a class="nav-link {% if request.endpoint == 'planner_page' %}active{% endif %}" href="/planner">
