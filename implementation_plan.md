@@ -635,8 +635,8 @@ def schedule_orders_fifo(orders, resources, work_schedule, start_date):
 > - ✅ Rework Detection (REMOV RB work center detection)
 > - ✅ 5-Tier Priority System
 > - ✅ Impact Analysis
-> - ❌ Rubber Grouping (changeover optimization not implemented)
-> - ❌ Dual-Cylinder Mode (not implemented)
+> - ❌ Rubber Grouping (changeover optimization not implemented) — **LOW priority, MVP 1.x**
+> - ❌ Dual-Cylinder Mode (not implemented) — **Deferred to MVP 3.0**
 
 ### 4.1 Objectives
 - Implement rubber type sequencing optimization
@@ -1540,8 +1540,8 @@ function SimulationControls({ simulation, onSpeedChange, onJumpToDate }) {
 > - ✅ Pending Core Report
 > - ✅ Impact Analysis Report (`backend/exporters/impact_analysis_exporter.py`)
 > - ✅ Reports downloadable via web UI from GCS
-> - ❌ Resource Utilization Report
-> - ❌ Alert Reports (Promise Risk, Core Shortage, Machine Utilization)
+> - ❌ Resource Utilization Report — **MEDIUM priority, MVP 1.x**
+> - ❌ Alert Reports (Promise Risk, Core Shortage, Machine Utilization) — **MEDIUM priority, MVP 1.x**
 
 ### 7.1 Objectives
 - Generate all required Excel reports
@@ -1738,6 +1738,8 @@ async function generateMasterScheduleReport(schedule) {
 ## 8. Phase 7: Testing & Refinement (Weeks 15-16) ⚠️ IN PROGRESS
 
 > **Status (updated Feb 4, 2026):** Manual testing is ongoing with real data on the production deployment. No automated unit tests or formal UAT have been performed. Key bugs found and fixed include: Core Mapping hardcoded path (fixed), Pegging Report path (fixed), GCS permissions (fixed), schedule page blank after restart (fixed with GCS persistence).
+>
+> **Remaining items (Automated Unit Tests, Integration Tests) — MEDIUM priority, MVP 1.x**
 
 ### 8.1 Objectives
 - Comprehensive testing with real data

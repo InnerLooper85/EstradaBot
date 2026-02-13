@@ -188,22 +188,27 @@ These items were identified during the February 4, 2026 feedback session and cla
 
 ---
 
-### 2.6 Additional MVP 2.0 Items (from Original Implementation Plan)
+### 2.6 Additional Items (from Original Implementation Plan)
 
-These were in the original plan but not yet implemented:
+These were in the original plan but not yet implemented. **Updated Feb 13, 2026:** Items reclassified per product owner direction.
 
-| Item | Original Phase | Status |
-|------|---------------|--------|
-| Rubber Grouping Optimization (changeover minimization) | Phase 3 | Not implemented |
-| Dual-Cylinder Mode Recommendation | Phase 3 | Not implemented |
-| Resource Utilization Report | Phase 6 | Not implemented |
-| Promise Date Risk Alert Report | Phase 6 | Not implemented |
-| Core Shortage Alert Report | Phase 6 | Not implemented |
-| Machine Utilization Alert Report | Phase 6 | Not implemented |
-| Automated Unit Tests | Phase 7 | Not implemented |
-| Automated Integration Tests | Phase 7 | Not implemented |
+#### Moved to MVP 1.x (will be completed before MVP 2.0)
 
-**Note:** Some of these (rubber grouping, reports, tests) may be completed as part of MVP 1.x iterations before MVP 2.0 begins. They are listed here for completeness.
+| Item | Original Phase | MVP 1.x Priority |
+|------|---------------|-------------------|
+| Rubber Grouping Optimization (changeover minimization) | Phase 3 | LOW |
+| Resource Utilization Report | Phase 6 | MEDIUM |
+| Promise Date Risk Alert Report | Phase 6 | MEDIUM |
+| Core Shortage Alert Report | Phase 6 | MEDIUM |
+| Machine Utilization Alert Report | Phase 6 | MEDIUM |
+| Automated Unit Tests | Phase 7 | MEDIUM |
+| Automated Integration Tests | Phase 7 | MEDIUM |
+
+#### Deferred to MVP 3.0
+
+| Item | Original Phase | Notes |
+|------|---------------|-------|
+| Dual-Cylinder Mode Recommendation | Phase 3 | Very low priority per product owner |
 
 ---
 
