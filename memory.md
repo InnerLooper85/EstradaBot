@@ -161,27 +161,116 @@ SCENARIO_CONFIGS = {
 
 ---
 
-## Remaining Work
+## Implementation Plan
 
-### Immediate Next — Special Requests System (MVP 1.4)
-See "Special Requests — Full Feature Specification" above. This is the next priority feature.
+### MVP 1.4 — Special Requests System (can build now, no decisions needed)
 
-### MVP 1.x (no owner decisions needed)
-- Resource Utilization Report (MEDIUM)
-- Promise Date Risk Alert Report (MEDIUM)
-- Core Shortage Alert Report (MEDIUM)
-- Machine Utilization Alert Report (MEDIUM)
-- Automated unit tests — pytest (MEDIUM)
-- Automated integration tests (MEDIUM)
-- Rubber Grouping Optimization — changeover minimization (LOW)
+Everything below has enough spec from the previous conversation to implement.
 
-### MVP 2.0 (blocked on Sean's decisions)
+#### 1. Dedicated Special Requests Page
+- New route: `GET /special-requests` → `special_requests.html`
+- New template: `backend/templates/special_requests.html`
+- Left nav link in `base.html` — visible to ALL authenticated roles
+- Remove/replace the collapsible form currently embedded in `planner.html`
+
+#### 2. Request Submission Form — Two Modes
+- **Mode A — Modify Existing Order**:
+  - WO# search/autocomplete against current schedule data (`/api/schedule` already returns all orders)
+  - When WO found: pre-fill order details (part number, customer, rubber type, core)
+  - User selects change type: Hot List (priority bump) or Redline (rubber substitution)
+  - For Redline: dropdown for rubber override (XE, HR, XD, XR — already in existing form)
+  - For Hot List: ASAP vs Dated toggle + need-by-date picker (already exists)
+- **Mode B — New Incoming Request**:
+  - Manual WO# entry (free text, no autocomplete match)
+  - App detects "WO not found in system" and switches to placeholder mode
+  - User fills in: request type, priority, rubber override, reason/comments
+  - Stored with a `matched: false` flag for later reconciliation
+
+#### 3. Approval Queue
+- Visible section on the Special Requests page (below the submission form, or as a tab)
+- Shows ALL requests with status badges (pending/approved/rejected/published)
+- Filterable by status
+- **All roles** can see the queue (transparency)
+- **Approve/Reject buttons** only render for Planner and Admin roles
+- Rejection requires a reason (text input)
+- Already have the API: `POST /api/planner/approve-requests`
+
+#### 4. Impact Preview at Submission Time
+- When a user (e.g., CS at 10AM) submits a request, show them a preview of the impact
+- Run the DES engine: current published schedule as baseline, then re-run with the new request added
+- Show: which orders get delayed, by how much, any newly-late orders
+- User sees this BEFORE clicking "Make Request" — they can cancel or proceed
+- This is a lightweight version of what the planner sees in Step 6
+
+#### 5. Data Load Reconciliation (Mode B matching)
+- When new files are uploaded via `/api/upload`, after parsing:
+  - Check all `matched: false` special requests against incoming WO numbers
+  - If a match is found: update the request's `matched: true`, attach the order details
+  - Surface a notification/badge: "X pending requests matched new data"
+- Matched requests appear in the planner's Step 6 review with full order context
+
+#### 6. Planner Workflow Integration
+- Step 6 of planner workflow pulls from the same Special Requests store
+- Includes both Excel-uploaded hot list items AND app-entered requests
+- Planner sees unified view: all pending requests with impact analysis
+- Approvals from the Special Requests page carry over (already approved = pre-approved in Step 6)
+
+#### Files to Create/Modify
+| File | Action |
+|------|--------|
+| `backend/templates/special_requests.html` | **CREATE** — main page template |
+| `backend/templates/base.html` | EDIT — add "Special Requests" to left nav |
+| `backend/templates/planner.html` | EDIT — remove embedded form, link to Special Requests page |
+| `backend/app.py` | EDIT — add `/special-requests` route, update `/api/upload` for reconciliation, add impact-preview endpoint |
+| `backend/gcs_storage.py` | EDIT — add `matched` field support to special request storage |
+
+#### Existing Infrastructure (already built, reuse)
+- `POST /api/special-requests` — submission endpoint
+- `GET /api/special-requests` — list with status filter
+- `POST /api/planner/approve-requests` — approval endpoint
+- `save_special_requests()` / `load_special_requests()` — GCS persistence
+- Hot list → scheduler conversion logic in `simulate_with_requests()`
+- Request type field already supports: `hot_list`, `expedite`, `rubber_override`
+
+---
+
+### MVP 1.5 — Needs Sean's Input Before Building
+
+#### Questions that need answers:
+
+1. **Redline scope beyond rubber type**: The current form handles rubber substitution (HR→XE etc). Are there other types of redline changes? Examples:
+   - Different core assignment?
+   - Changed process routing (skip/add operations)?
+   - Different part number substitution?
+   - Or is rubber override the only redline case for now?
+
+2. **Reconciliation behavior details**: When a Mode B placeholder matches a newly-uploaded WO:
+   - Auto-apply the request to the order? Or just flag it for planner review?
+   - What if the uploaded order data contradicts the request (e.g., request says "expedite WO 12345" but the WO comes in with a different part number than expected)?
+   - Should unmatched placeholders expire after some time?
+
+3. **Notification system**: Sean's 10AM example implies CS should know their request was processed:
+   - In-app notifications (badge/bell icon)?
+   - Just check the status on the Special Requests page?
+   - Email notifications?
+
+4. **Alert Reports** (independent feature set):
+   - Resource Utilization Report — what thresholds? Format?
+   - Promise Date Risk — how many days buffer = "at risk"?
+   - Core Shortage — current thresholds work?
+   - Machine Utilization — over/under thresholds?
+
+5. **Automated tests** — what to prioritize first?
+
+---
+
+### MVP 2.0 (blocked on larger architectural decisions)
 See `MVP_2.0_Planning.md` Section 3 for the full to-do list. Key blockers:
 - "Last Move Date" data source for Days Idle column
 - Skeleton shift parameters
 - Core Mapping database edit permissions
-- Schedule manipulation scope (reorder vs reassign)
-- User role permission matrix confirmation
+- GUI drag-drop schedule manipulation scope
+- Full RBAC with user management UI
 
 ---
 
