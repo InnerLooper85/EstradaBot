@@ -42,7 +42,8 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
             'Turnaround (days)': order.turnaround_days,
             'Basic Finish Date': getattr(order, 'basic_finish_date', None),
             'Promise Date': order.promise_date,
-            'On-Time': 'Yes' if order.on_time else 'No'
+            'On-Time': 'Yes' if order.on_time else 'No',
+            'Special Instructions': getattr(order, 'special_instructions', '') or ''
         })
 
     df = pd.DataFrame(data)
@@ -91,6 +92,7 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Blast Date': order.blast_date.strftime('%m/%d/%Y') if order.blast_date else '',
             'Blast Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
             'Core Required': order.assigned_core,
+            'Special Instructions': getattr(order, 'special_instructions', '') or '',
             'Planned Desma': getattr(order, 'planned_desma', '') or ''
         })
 
@@ -131,6 +133,7 @@ def export_core_schedule(scheduled_orders: List, output_path: str) -> str:
 
             core_loads.append({
                 'Core': order.assigned_core,
+                'Special Instructions': getattr(order, 'special_instructions', '') or '',
                 'Load Date': core_load_time.strftime('%Y-%m-%d'),
                 'Load Time': core_load_time.strftime('%H:%M'),
                 'For WO#': order.wo_number,
@@ -148,7 +151,7 @@ def export_core_schedule(scheduled_orders: List, output_path: str) -> str:
     # Reorder columns
     df = pd.DataFrame(core_loads)
     if not df.empty:
-        df = df[['Seq', 'Core', 'Load Date', 'Load Time', 'For WO#', 'Part Number', 'Description']]
+        df = df[['Seq', 'Core', 'Special Instructions', 'Load Date', 'Load Time', 'For WO#', 'Part Number', 'Description']]
 
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Core Oven Schedule', index=False)

@@ -109,8 +109,11 @@ class DataLoader:
         else:
             dispatch_file = self._find_most_recent_file("Shop Dispatch*.XLSX")
             if not dispatch_file:
-                # Also try lowercase extension
                 dispatch_file = self._find_most_recent_file("Shop Dispatch*.xlsx")
+            if not dispatch_file:
+                dispatch_file = self._find_most_recent_file("SDR*.XLSX")
+            if not dispatch_file:
+                dispatch_file = self._find_most_recent_file("SDR*.xlsx")
 
         if not dispatch_file or not dispatch_file.exists():
             print("  No Shop Dispatch file found (optional)")
@@ -180,6 +183,10 @@ class DataLoader:
             # 1. Load Sales Orders (find most recent file)
             print("\n[1/6] Loading Open Sales Order...")
             sales_order_file = self._find_most_recent_file("Open Sales Order*.xlsx")
+            if not sales_order_file:
+                sales_order_file = self._find_most_recent_file("OSO*.xlsx")
+            if not sales_order_file:
+                sales_order_file = self._find_most_recent_file("OSO*.XLSX")
             if not sales_order_file:
                 print("[ERROR] No Open Sales Order file found!")
                 return False

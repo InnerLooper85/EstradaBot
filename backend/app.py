@@ -113,7 +113,7 @@ def load_users():
             if len(parts) >= 2:
                 username = parts[0]
                 password = parts[1]
-                role = parts[2] if len(parts) > 2 else 'user'
+                role = parts[2].strip().lower() if len(parts) > 2 else 'user'
                 users[username] = User(
                     username,
                     generate_password_hash(password),
@@ -481,7 +481,7 @@ def upload_file():
     filename = secure_filename(file.filename)
     try:
         # Scrub sensitive columns from sales order files before uploading
-        if file_type == 'sales_order' or 'open sales order' in filename.lower().replace('_', ' '):
+        if file_type == 'sales_order' or 'open sales order' in filename.lower().replace('_', ' ') or filename.lower().startswith('oso'):
             import tempfile
             import openpyxl
 
@@ -677,7 +677,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
             'turnaround_days': order.turnaround_days,
             'on_time': order.on_time,
             'on_time_status': status,
-            'is_reline': order.is_reline
+            'is_reline': order.is_reline,
+            'special_instructions': order.special_instructions or ''
         })
 
     stats = {
@@ -724,6 +725,15 @@ def generate_schedule():
 
         if not loader.orders:
             return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
+
+        # Exclude orders on hold
+        order_holds = gcs_storage.load_order_holds()
+        if order_holds:
+            before_count = len(loader.orders)
+            loader.orders = [o for o in loader.orders if o.get('wo_number') not in order_holds]
+            held_count = before_count - len(loader.orders)
+            if held_count > 0:
+                print(f"[Generate] Excluded {held_count} orders on hold")
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
@@ -850,7 +860,8 @@ def _serialize_orders_from_objects(orders, stats_ref):
             'promise_date': order.promise_date.isoformat() if order.promise_date else '',
             'turnaround_days': order.turnaround_days or '',
             'on_time_status': status,
-            'is_rework': order.is_reline
+            'is_rework': order.is_reline,
+            'special_instructions': order.special_instructions or ''
         })
 
     turnaround_times = [o.turnaround_days for o in orders if o.turnaround_days]
@@ -886,7 +897,8 @@ def _serialize_orders_from_dicts(serialized_orders):
             'promise_date': order.get('promise_date', ''),
             'turnaround_days': order.get('turnaround_days', ''),
             'on_time_status': order.get('on_time_status', 'On Time'),
-            'is_rework': order.get('is_reline', False)
+            'is_rework': order.get('is_reline', False),
+            'special_instructions': order.get('special_instructions', '')
         })
     return orders_data
 
@@ -1103,6 +1115,38 @@ def get_feedback():
         return jsonify({'feedback': []})
 
 
+@app.route('/api/feedback/export')
+@login_required
+def export_feedback():
+    """Export all feedback as downloadable JSON for dev sessions.
+    Includes full feedback entries with attachment metadata.
+    Usage: curl -o feedback.json https://estradabot.biz/api/feedback/export
+    """
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        feedback = gcs_storage.load_feedback()
+        feedback.reverse()  # Newest first
+
+        export = {
+            'exported_at': datetime.now().isoformat(),
+            'total_entries': len(feedback),
+            'entries': feedback,
+            'attachment_download_url': '/api/feedback/download/{filename}?folder={folder}'
+        }
+
+        response = app.response_class(
+            response=json.dumps(export, indent=2, default=str),
+            status=200,
+            mimetype='application/json'
+        )
+        response.headers['Content-Disposition'] = 'attachment; filename=estradabot_feedback_export.json'
+        return response
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/feedback/download/<filename>')
 @login_required
 def download_feedback_file(filename):
@@ -1126,9 +1170,8 @@ def download_feedback_file(filename):
 @app.route('/api/simulation-data')
 @login_required
 def get_simulation_data():
-    """Get simulation data for visual factory floor animation."""
-    if not current_schedule['orders']:
-        return jsonify({'error': 'No schedule generated. Please generate a schedule first.'}), 400
+    """Get simulation data for visual factory floor animation.
+    Defaults to the published schedule if available, falls back to current schedule."""
 
     # Station layout configuration (x, y positions for rendering)
     stations = [
@@ -1146,60 +1189,72 @@ def get_simulation_data():
         {'id': 'INSPECT', 'name': 'INSPECT', 'x': 80, 'y': 330, 'width': 80, 'height': 50},
     ]
 
-    # Get date range from scheduled orders
-    all_starts = []
-    all_ends = []
-    for order in current_schedule['orders']:
-        if order.blast_date:
-            all_starts.append(order.blast_date)
-        if order.completion_date:
-            all_ends.append(order.completion_date)
-        for op in order.operations:
-            all_starts.append(op.start_time)
-            all_ends.append(op.end_time)
+    # Try in-memory objects first (freshly generated)
+    if current_schedule['orders']:
+        all_starts = []
+        all_ends = []
+        for order in current_schedule['orders']:
+            if order.blast_date:
+                all_starts.append(order.blast_date)
+            if order.completion_date:
+                all_ends.append(order.completion_date)
+            for op in order.operations:
+                all_starts.append(op.start_time)
+                all_ends.append(op.end_time)
 
-    start_date = min(all_starts) if all_starts else datetime.now()
-    end_date = max(all_ends) if all_ends else datetime.now()
+        start_date = min(all_starts) if all_starts else datetime.now()
+        end_date = max(all_ends) if all_ends else datetime.now()
 
-    # Convert orders to simulation format
-    parts = []
-    orders_with_ops = 0
-    for order in current_schedule['orders']:
-        operations = []
-        for op in order.operations:
-            operations.append({
-                'station': op.operation_name,
-                'start': op.start_time.isoformat(),
-                'end': op.end_time.isoformat(),
-                'resource': op.resource_id
+        parts = []
+        orders_with_ops = 0
+        for order in current_schedule['orders']:
+            operations = []
+            for op in order.operations:
+                operations.append({
+                    'station': op.operation_name,
+                    'start': op.start_time.isoformat(),
+                    'end': op.end_time.isoformat(),
+                    'resource': op.resource_id
+                })
+            if operations:
+                orders_with_ops += 1
+            parts.append({
+                'wo_number': order.wo_number or '',
+                'part_number': order.part_number or '',
+                'customer': order.customer or '',
+                'priority': order.priority or 'Normal',
+                'rubber_type': order.rubber_type or '',
+                'assigned_core': order.assigned_core or '',
+                'is_rework': order.is_reline,
+                'operations': operations
             })
 
-        if operations:
-            orders_with_ops += 1
+        print(f"[Simulation API] {len(parts)} parts, {orders_with_ops} with operations (from in-memory)")
 
-        parts.append({
-            'wo_number': order.wo_number or '',
-            'part_number': order.part_number or '',
-            'customer': order.customer or '',
-            'priority': order.priority or 'Normal',
-            'rubber_type': order.rubber_type or '',
-            'assigned_core': order.assigned_core or '',
-            'is_rework': order.is_reline,
-            'operations': operations
-        })
+        # Save for future use (so simulation survives server restarts)
+        sim_payload = {
+            'schedule_info': {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'total_orders': len(parts),
+                'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None
+            },
+            'stations': stations,
+            'parts': parts
+        }
+        gcs_storage.save_simulation_data(sim_payload)
 
-    print(f"[Simulation API] {len(parts)} parts, {orders_with_ops} with operations")
+        return jsonify(sim_payload)
 
-    return jsonify({
-        'schedule_info': {
-            'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat(),
-            'total_orders': len(parts),
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule['generated_at'] else None
-        },
-        'stations': stations,
-        'parts': parts
-    })
+    # Fall back to persisted simulation data (published schedule)
+    persisted_sim = gcs_storage.load_simulation_data()
+    if persisted_sim:
+        print(f"[Simulation API] Serving from persisted simulation data (published schedule)")
+        # Ensure stations are current (layout may have been updated)
+        persisted_sim['stations'] = stations
+        return jsonify(persisted_sim)
+
+    return jsonify({'error': 'No schedule available. Please generate or publish a schedule first.'}), 400
 
 
 # ============== Planner Workflow API ==============
@@ -1258,6 +1313,15 @@ def simulate_scenarios():
         if not loader.orders:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
+
+        # Exclude orders on hold
+        order_holds = gcs_storage.load_order_holds()
+        if order_holds:
+            before_count = len(loader.orders)
+            loader.orders = [o for o in loader.orders if o.get('wo_number') not in order_holds]
+            held_count = before_count - len(loader.orders)
+            if held_count > 0:
+                print(f"[Planner] Excluded {held_count} orders on hold")
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         scenarios = {}
@@ -1409,6 +1473,55 @@ def create_special_request():
         'success': True,
         'request': request_entry
     })
+
+
+@app.route('/api/order-holds', methods=['GET'])
+@login_required
+def get_order_holds():
+    """Get all current order holds."""
+    holds = gcs_storage.load_order_holds()
+    return jsonify({'holds': holds})
+
+
+@app.route('/api/order-holds', methods=['POST'])
+@login_required
+def set_order_hold():
+    """Place an order on hold. Requires admin or planner role."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can place holds.'}), 403
+
+    data = request.get_json()
+    wo_number = data.get('wo_number', '').strip()
+    reason = data.get('reason', '').strip()
+
+    if not wo_number:
+        return jsonify({'error': 'Work Order number is required'}), 400
+
+    holds = gcs_storage.load_order_holds()
+    holds[wo_number] = {
+        'held_by': current_user.username,
+        'held_at': datetime.now().isoformat(),
+        'reason': reason
+    }
+    gcs_storage.save_order_holds(holds)
+
+    return jsonify({'success': True, 'wo_number': wo_number, 'hold': holds[wo_number]})
+
+
+@app.route('/api/order-holds/<wo_number>', methods=['DELETE'])
+@login_required
+def remove_order_hold(wo_number):
+    """Remove a hold from an order. Requires admin or planner role."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can remove holds.'}), 403
+
+    holds = gcs_storage.load_order_holds()
+    if wo_number in holds:
+        del holds[wo_number]
+        gcs_storage.save_order_holds(holds)
+        return jsonify({'success': True, 'wo_number': wo_number})
+    else:
+        return jsonify({'error': f'No hold found for WO {wo_number}'}), 404
 
 
 @app.route('/api/special-requests/impact-preview', methods=['POST'])
@@ -1675,6 +1788,7 @@ def simulate_with_requests():
                 'on_time': order.on_time,
                 'on_time_status': status,
                 'is_reline': order.is_reline,
+                'special_instructions': order.special_instructions or '',
             })
 
         stats = _compute_stats_from_serialized(serialized)
@@ -1882,6 +1996,7 @@ def generate_final_schedule():
                 'on_time': order.on_time,
                 'on_time_status': status,
                 'is_reline': order.is_reline,
+                'special_instructions': order.special_instructions or '',
             })
 
         turnaround_times = [o.turnaround_days for o in final_orders if o.turnaround_days]

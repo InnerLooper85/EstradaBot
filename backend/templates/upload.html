@@ -54,13 +54,13 @@
                     <tbody>
                         <tr>
                             <td><i class="bi bi-file-earmark-excel text-success"></i> Sales Order</td>
-                            <td><code>Open Sales Order*.xlsx</code></td>
+                            <td><code>Open Sales Order*.xlsx</code> or <code>OSO*.xlsx</code></td>
                             <td><span class="badge bg-danger">Required</span></td>
                             <td>Open work orders with BLAST dates, customers, promise dates</td>
                         </tr>
                         <tr>
                             <td><i class="bi bi-file-earmark-excel text-success"></i> Shop Dispatch</td>
-                            <td><code>Shop Dispatch*.xlsx</code></td>
+                            <td><code>Shop Dispatch*.xlsx</code> or <code>SDR*.xlsx</code></td>
                             <td><span class="badge bg-secondary">Optional</span></td>
                             <td>Work center operations and routing data</td>
                         </tr>
@@ -266,9 +266,9 @@
 
     // Detect file type from filename
     function detectFileType(filename) {
-        const lower = filename.toLowerCase();
-        if (lower.includes('open sales order')) return 'sales_order';
-        if (lower.includes('shop dispatch')) return 'shop_dispatch';
+        const lower = filename.toLowerCase().replace(/_/g, ' ');
+        if (lower.includes('open sales order') || lower.startsWith('oso')) return 'sales_order';
+        if (lower.includes('shop dispatch') || lower.startsWith('sdr')) return 'shop_dispatch';
         if (lower.includes('hot list')) return 'hot_list';
         if (lower.includes('core mapping')) return 'core_mapping';
         return 'unknown';
