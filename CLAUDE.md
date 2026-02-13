@@ -80,7 +80,8 @@ EstradaBot/
 ### Git Workflow
 - **Main branch:** `master`
 - **Feature branches:** Create a new branch for each feature or fix
-- **Pull requests:** All changes to `master` go through a PR with review
+- **Pull requests:** All changes to `master` go through a PR with review (for team members)
+- **Owner direct deploy:** When the project owner (InnerLooper85) explicitly requests a deploy during a Claude Code session, Claude may merge directly to `master` and push without creating a PR. This bypasses GitHub review for speed. All other contributors must still use PRs.
 - **Commit messages:** Short, descriptive — explain the "why" not just the "what"
 - Never force push to `master`
 - Always pull the latest `master` before creating a new branch
@@ -147,11 +148,27 @@ Deployment is done via Google Cloud Run from the repo root:
 gcloud run deploy estradabot --source . --region us-central1 --allow-unauthenticated
 ```
 
+### Owner Direct Deploy (fast path)
+
+When the project owner says "deploy", "merge and deploy", "push to production", or similar during a Claude Code session, follow this streamlined process:
+
+1. Complete the **Versioning Protocol** below (version badge, update log, CLAUDE.md)
+2. Commit changes on the feature branch and push
+3. Switch to `master`, pull latest, merge the feature branch
+4. Push `master` to origin
+5. Report: "Merged to master and pushed. Ready for `gcloud run deploy`."
+
+**Note:** The actual `gcloud run deploy` command must be run by the owner on their local machine (Claude Code does not have gcloud credentials). Claude's job is to get `master` ready.
+
+### Standard Deploy (team members)
+
 **Before deploying:**
 1. Ensure all tests pass locally
 2. Ensure your changes are committed and pushed
-3. Coordinate with the team — only one deploy at a time
-4. Verify the live site after deployment: https://estradabot.biz
+3. Create a PR and get it reviewed/approved
+4. Merge via GitHub
+5. Coordinate with the team — only one deploy at a time
+6. Verify the live site after deployment: https://estradabot.biz
 
 ---
 
@@ -171,7 +188,7 @@ gcloud run deploy estradabot --source . --region us-central1 --allow-unauthentic
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.2
+**Current Version:** MVP 1.3
 
 When merging changes to `master` that will be deployed to production, you MUST:
 
