@@ -1,11 +1,11 @@
 # Stator Production Scheduling Application - Implementation Plan
 
-**Document Version:** 1.3
+**Document Version:** 1.4
 **Date:** February 1, 2026
-**Last Updated:** February 4, 2026
-**Current Product Version:** MVP 1.0
-**Next Release:** MVP 1.1 (User Feedback Incorporation)
-**Estimated Total Timeline:** 8-12 weeks
+**Last Updated:** February 14, 2026
+**Current Product Version:** MVP 1.7
+**Next Release:** MVP 2.0 (see `MVP_2.0_Planning.md`)
+**Estimated Total Timeline:** 8-12 weeks (MVP 1.0 delivered in ~4 weeks)
 
 ---
 
@@ -20,10 +20,10 @@
 | Phase 3: Optimization Logic        | ⚠️ MOSTLY COMPLETE | Hot list & rework done; rubber grouping not done |
 | Phase 4: User Interface            | ✅ COMPLETE         | Flask web app with Bootstrap 5 UI                |
 | Phase 5: Visual Simulation         | ✅ COMPLETE         | Animated factory floor simulation                |
-| Phase 6: Reporting & Export        | ⚠️ MOSTLY COMPLETE | Core reports done; utilization/alerts not done   |
-| Phase 7: Testing & Refinement      | ⚠️ IN PROGRESS     | Manual testing ongoing; no automated tests       |
+| Phase 6: Reporting & Export        | ✅ COMPLETE         | Core reports + 4 alert types (MVP 1.7)           |
+| Phase 7: Testing & Refinement      | ✅ COMPLETE         | 51 pytest tests; manual testing ongoing           |
 | Deployment                         | ✅ COMPLETE         | Live on Google Cloud Run with GCS storage        |
-| **MVP 1.1: User Feedback**         | ⚠️ **IN PROGRESS** | 2 of 11 items complete — See Phase 8 below       |
+| **MVP 1.1: User Feedback**         | ✅ **COMPLETE**     | All 11 items complete — See Phase 8 below        |
 
 ### Architecture Notes
 
@@ -93,11 +93,11 @@ python backend/app.py
 | ------- | ------------------------- | --------- | ----------------------------- | ------ |
 | Phase 1 | Data Foundation           | 1-2 weeks | Data ingestion and validation | ✅ COMPLETE |
 | Phase 2 | Core Scheduling Algorithm | 2-3 weeks | Basic schedule generation     | ✅ COMPLETE |
-| Phase 3 | Optimization Logic        | 1-2 weeks | Resource optimization         | ⚠️ MOSTLY COMPLETE |
+| Phase 3 | Optimization Logic        | 1-2 weeks | Resource optimization         | ⚠️ MOSTLY COMPLETE (rubber grouping remaining) |
 | Phase 4 | User Interface            | 2-3 weeks | Web application UI            | ✅ COMPLETE |
 | Phase 5 | Visual Simulation         | 2-3 weeks | Animated simulation           | ✅ COMPLETE |
-| Phase 6 | Reporting & Export        | 1 week    | All reports and exports       | ⚠️ MOSTLY COMPLETE |
-| Phase 7 | Testing & Refinement      | 1-2 weeks | User acceptance testing       | ⚠️ IN PROGRESS |
+| Phase 6 | Reporting & Export        | 1 week    | All reports and exports       | ✅ COMPLETE |
+| Phase 7 | Testing & Refinement      | 1-2 weeks | User acceptance testing       | ✅ COMPLETE |
 
 
 **Total:** 10-16 weeks (can be compressed with parallel work)
@@ -1540,8 +1540,8 @@ function SimulationControls({ simulation, onSpeedChange, onJumpToDate }) {
 > - ✅ Pending Core Report
 > - ✅ Impact Analysis Report (`backend/exporters/impact_analysis_exporter.py`)
 > - ✅ Reports downloadable via web UI from GCS
-> - ❌ Resource Utilization Report — **MEDIUM priority, MVP 1.x**
-> - ❌ Alert Reports (Promise Risk, Core Shortage, Machine Utilization) — **MEDIUM priority, MVP 1.x**
+> - ✅ Alert Reports — Promise Date Risk, Core Shortage, Machine Utilization, Late Order Summary (MVP 1.7)
+> - ⚠️ Resource Utilization Excel Report — standalone downloadable report not yet built (dashboard alert cards exist)
 
 ### 7.1 Objectives
 - Generate all required Excel reports
@@ -1737,9 +1737,7 @@ async function generateMasterScheduleReport(schedule) {
 
 ## 8. Phase 7: Testing & Refinement (Weeks 15-16) ⚠️ IN PROGRESS
 
-> **Status (updated Feb 4, 2026):** Manual testing is ongoing with real data on the production deployment. No automated unit tests or formal UAT have been performed. Key bugs found and fixed include: Core Mapping hardcoded path (fixed), Pegging Report path (fixed), GCS permissions (fixed), schedule page blank after restart (fixed with GCS persistence).
->
-> **Remaining items (Automated Unit Tests, Integration Tests) — MEDIUM priority, MVP 1.x**
+> **Status (updated Feb 14, 2026):** 51 pytest tests covering DES engine, API endpoints, and page access (added MVP 1.7). Manual testing ongoing with real production data. Key bugs found and fixed: Core Mapping hardcoded path, Pegging Report path, GCS permissions, schedule page blank after restart, role case sensitivity, file name detection patterns.
 
 ### 8.1 Objectives
 - Comprehensive testing with real data
@@ -2011,9 +2009,9 @@ async function generateMasterScheduleReport(schedule) {
 
 ## Phase 8: MVP 1.1 — User Feedback Incorporation 🆕
 
-> **Status:** COMPLETE (11 of 11 items complete)
+> **Status:** ✅ COMPLETE (11 of 11 items complete — shipped across MVP 1.1 through 1.7)
 > **Source:** Initial user feedback collected February 4, 2026 from Planning Team, Customer Service Team, and Product Owner
-> **Target Version:** MVP 1.1
+> **Target Version:** MVP 1.1 (completed, with additional features continuing through MVP 1.7)
 > **Related Documents:**
 > - `planning_algorithm_logic.md` — Algorithm rules and flagged items
 > - `data_fields_reference.md` — All data fields used from uploaded reports

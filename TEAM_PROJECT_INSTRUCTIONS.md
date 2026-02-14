@@ -117,7 +117,7 @@ The scheduler takes these inputs as Excel files, runs a simulation, and produces
 
 ## Versioning Protocol
 
-**Current Version:** MVP 1.1
+**Current Version:** MVP 1.7
 
 When changes are merged to `master` for production deployment, the following MUST be updated:
 

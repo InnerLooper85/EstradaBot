@@ -1,8 +1,7 @@
 # EstradaBot — Session Memory
 
 **Last updated:** February 14, 2026
-**Current deployed version:** MVP 1.6 (on master)
-**Working branch version:** MVP 1.7+ (on claude/review-estradabot-build-plan-QZj5H)
+**Current deployed version:** MVP 1.7 (on master — merged via PR #9)
 
 ---
 

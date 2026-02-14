@@ -1,9 +1,10 @@
 # EstradaBot — MVP 2.0 Planning Document
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Date:** February 4, 2026
-**Status:** Early Planning
-**Prerequisites:** Complete MVP 1.1 (all high-priority user feedback) and remaining MVP 1.0 implementation plan items
+**Last Updated:** February 14, 2026
+**Status:** Early Planning — prerequisites met, blocked on product owner decisions (see Section 3)
+**Prerequisites:** ~~Complete MVP 1.1 (all high-priority user feedback) and remaining MVP 1.0 implementation plan items~~ **DONE** — all MVP 1.x items shipped through MVP 1.7
 
 ---
 
@@ -17,8 +18,8 @@ MVP 2.0 represents the next major evolution of EstradaBot. It focuses on:
 - Live data integration
 
 MVP 2.0 development should begin after:
-1. All MVP 1.1 items (Phase 8 in the implementation plan) are complete
-2. Remaining MVP 1.0 items are complete (rubber grouping optimization, resource utilization reports, alert reports, automated tests)
+1. ~~All MVP 1.1 items (Phase 8 in the implementation plan) are complete~~ **DONE** (MVP 1.1-1.7)
+2. ~~Remaining MVP 1.0 items are complete (rubber grouping optimization, resource utilization reports, alert reports, automated tests)~~ **Mostly done** — alert reports and 51 pytest tests shipped in MVP 1.7. Rubber grouping (LOW priority) is the only remaining item; not blocking MVP 2.0.
 
 ---
 
@@ -192,17 +193,17 @@ These items were identified during the February 4, 2026 feedback session and cla
 
 These were in the original plan but not yet implemented. **Updated Feb 13, 2026:** Items reclassified per product owner direction.
 
-#### Moved to MVP 1.x (will be completed before MVP 2.0)
+#### Moved to MVP 1.x — Status Update (Feb 14, 2026)
 
-| Item | Original Phase | MVP 1.x Priority |
-|------|---------------|-------------------|
-| Rubber Grouping Optimization (changeover minimization) | Phase 3 | LOW |
-| Resource Utilization Report | Phase 6 | MEDIUM |
-| Promise Date Risk Alert Report | Phase 6 | MEDIUM |
-| Core Shortage Alert Report | Phase 6 | MEDIUM |
-| Machine Utilization Alert Report | Phase 6 | MEDIUM |
-| Automated Unit Tests | Phase 7 | MEDIUM |
-| Automated Integration Tests | Phase 7 | MEDIUM |
+| Item | Original Phase | Status |
+|------|---------------|--------|
+| Rubber Grouping Optimization (changeover minimization) | Phase 3 | **Not done** — LOW priority, not blocking MVP 2.0 |
+| Resource Utilization Report (standalone Excel export) | Phase 6 | **Partial** — dashboard alert cards exist, standalone Excel export not built |
+| Promise Date Risk Alert Report | Phase 6 | **DONE** (MVP 1.7) |
+| Core Shortage Alert Report | Phase 6 | **DONE** (MVP 1.7) |
+| Machine Utilization Alert Report | Phase 6 | **DONE** (MVP 1.7) |
+| Automated Unit Tests | Phase 7 | **DONE** (51 pytest tests in MVP 1.7) |
+| Automated Integration Tests | Phase 7 | **Partial** — API endpoint tests exist, more coverage possible |
 
 #### Deferred to MVP 3.0
 
