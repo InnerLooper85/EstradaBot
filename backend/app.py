@@ -420,6 +420,7 @@ def _reconcile_special_requests(filename: str, file_type: str) -> int:
     """
     After a file upload, check for unmatched (Mode B) special requests
     whose WO numbers now appear in the uploaded data.
+    Detects data mismatches and flags them for planner review.
     Returns the number of newly matched requests.
     """
     try:
@@ -430,33 +431,84 @@ def _reconcile_special_requests(filename: str, file_type: str) -> int:
             return 0
 
         # Extract WO numbers from the uploaded file
-        uploaded_wos = set()
+        uploaded_orders = {}  # wo_number -> order dict
         import tempfile
         temp_dir = tempfile.mkdtemp(prefix='estradabot_reconcile_')
         local_paths = gcs_storage.download_files_for_processing(temp_dir)
 
-        # Parse WO numbers from all available data
+        # Parse orders from all available data
         try:
             loader = DataLoader(local_paths)
             if loader.orders:
-                uploaded_wos = {o.wo_number for o in loader.orders if o.wo_number}
+                for o in loader.orders:
+                    wo = o.get('wo_number')
+                    if wo:
+                        uploaded_orders[wo] = o
         except Exception as e:
             print(f"[Reconcile] Could not parse uploaded data: {e}")
             return 0
 
-        # Match unmatched requests
+        # Match unmatched requests and check for data mismatches
         matched_count = 0
         for req in all_requests:
             if req.get('matched') is False and req.get('status') == 'pending':
-                if req['wo_number'] in uploaded_wos:
+                wo = req['wo_number']
+                if wo in uploaded_orders:
+                    order_data = uploaded_orders[wo]
                     req['matched'] = True
                     req['matched_at'] = datetime.now().isoformat()
                     matched_count += 1
-                    print(f"[Reconcile] Matched special request {req['id']} to WO {req['wo_number']}")
+
+                    # Check for data mismatches between request and actual order
+                    mismatches = []
+                    if req.get('part_number') and order_data.get('part_number'):
+                        if req['part_number'] != order_data['part_number']:
+                            mismatches.append({
+                                'field': 'part_number',
+                                'expected': req['part_number'],
+                                'actual': order_data['part_number']
+                            })
+                    if req.get('customer') and order_data.get('customer'):
+                        if req['customer'].lower() != str(order_data['customer']).lower():
+                            mismatches.append({
+                                'field': 'customer',
+                                'expected': req['customer'],
+                                'actual': order_data.get('customer', '')
+                            })
+
+                    if mismatches:
+                        req['data_mismatches'] = mismatches
+                        req['needs_review'] = True
+                        print(f"[Reconcile] WARNING: Data mismatch for {req['id']} (WO {wo}): {mismatches}")
+                    else:
+                        req['data_mismatches'] = []
+                        req['needs_review'] = False
+
+                    # Store matched order data for reference
+                    req['matched_order_data'] = {
+                        'part_number': order_data.get('part_number', ''),
+                        'customer': str(order_data.get('customer', '')),
+                        'description': order_data.get('description', ''),
+                    }
+
+                    print(f"[Reconcile] Matched special request {req['id']} to WO {wo}")
 
         if matched_count > 0:
             gcs_storage.save_special_requests(all_requests)
             print(f"[Reconcile] {matched_count} request(s) matched from upload of {filename}")
+
+            # Create notification about matched requests
+            mismatch_count = sum(1 for r in all_requests
+                                if r.get('matched_at') and r.get('needs_review'))
+            msg = f'{matched_count} Mode B request(s) matched to uploaded data'
+            if mismatch_count:
+                msg += f' ({mismatch_count} with data mismatches — review needed)'
+            create_notification(
+                'warning' if mismatch_count else 'info',
+                msg,
+                target_roles=['admin', 'planner'],
+                related_entity={'type': 'reconciliation', 'value': filename}
+            )
 
         # Clean up temp dir
         import shutil
@@ -1498,9 +1550,31 @@ def _build_special_instructions(req):
 @app.route('/api/special-requests', methods=['GET'])
 @login_required
 def get_special_requests():
-    """Get all special requests, optionally filtered by status."""
+    """Get all special requests, optionally filtered by status.
+    Auto-expires unmatched Mode B placeholders older than 28 days."""
     status_filter = request.args.get('status')
     requests_list = gcs_storage.load_special_requests()
+
+    # Auto-expire unmatched Mode B placeholders after 28 days
+    now = datetime.now()
+    expired_count = 0
+    for req in requests_list:
+        if (req.get('matched') is False
+                and req.get('status') == 'pending'
+                and req.get('submitted_at')):
+            try:
+                submitted = datetime.fromisoformat(req['submitted_at'])
+                if (now - submitted).days >= 28:
+                    req['status'] = 'expired'
+                    req['expired_at'] = now.isoformat()
+                    req['expiry_reason'] = 'Unmatched placeholder expired after 28 days'
+                    expired_count += 1
+            except (ValueError, TypeError):
+                pass
+
+    if expired_count > 0:
+        gcs_storage.save_special_requests(requests_list)
+        print(f"[SpecialRequests] Expired {expired_count} unmatched placeholder(s)")
 
     if status_filter:
         requests_list = [r for r in requests_list if r.get('status') == status_filter]

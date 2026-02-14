@@ -358,7 +358,10 @@ To pull user feedback from the live site into a Claude Code session:
 
 1. **Feedback status tracking** — Add Status column to admin feedback table. Statuses: New, In-Work, Fixed, Resolved w/o Action. Backend API to update. New feedback defaults to "New."
 2. **Capture.PNG error** — Confirmed fixed by Sean. No further action.
-3. **Mode B reconciliation** — Sean asked for explanation. Deferred pending his decision on auto-apply vs flag-for-review behavior.
+3. **Mode B reconciliation** — Decisions made:
+   - **Match behavior:** Flag for planner review (leave as-is, don't auto-apply)
+   - **Data mismatches:** When a placeholder matches a WO but part_number/customer don't line up, flag with `needs_review` and store mismatch details. Notification sent to admin/planner.
+   - **Expiration:** Unmatched placeholders auto-expire after 28 days (status → 'expired')
 4. **Notification bell system** — In-app bell icon with unread badge count, top-right navbar next to user login info. Dropdown shows recent notifications. Also viewable on a dedicated page. Auto-mark-as-read after 1 week.
 5. **Alert Reports** — All 4 types: Promise Date Risk, Core Shortage, Machine Utilization, Late Order Summary. Display: dashboard cards + dedicated Alerts page. Timing: auto-generate on schedule publish + on-demand refresh button.
 6. **Automated tests** — Starting with pytest framework, DES engine tests, API endpoint tests, parser tests.
