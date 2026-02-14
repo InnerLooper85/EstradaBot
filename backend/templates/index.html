@@ -48,6 +48,56 @@
     </div>
 </div>
 
+<!-- Alert Cards -->
+{% if alert_summary and alert_summary.total_alerts is defined and alert_summary.total_alerts > 0 %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0"><i class="bi bi-bell-fill text-warning"></i> Active Alerts</h6>
+            <a href="/alerts" class="btn btn-sm btn-outline-warning">View Details</a>
+        </div>
+    </div>
+    {% if alert_summary.late_count is defined and alert_summary.late_count > 0 %}
+    <div class="col-md-3">
+        <div class="card border-danger">
+            <div class="card-body text-center py-3">
+                <div class="stat-value status-late" style="font-size: 1.5rem;">{{ alert_summary.late_count }}</div>
+                <div class="stat-label"><i class="bi bi-x-circle text-danger"></i> Late Orders</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if alert_summary.at_risk_count is defined and alert_summary.at_risk_count > 0 %}
+    <div class="col-md-3">
+        <div class="card border-warning">
+            <div class="card-body text-center py-3">
+                <div class="stat-value status-at-risk" style="font-size: 1.5rem;">{{ alert_summary.at_risk_count }}</div>
+                <div class="stat-label"><i class="bi bi-exclamation-triangle text-warning"></i> At Risk</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if alert_summary.core_alerts is defined and alert_summary.core_alerts > 0 %}
+    <div class="col-md-3">
+        <div class="card border-warning">
+            <div class="card-body text-center py-3">
+                <div class="stat-value" style="font-size: 1.5rem; color: #fd7e14;">{{ alert_summary.core_alerts }}</div>
+                <div class="stat-label"><i class="bi bi-box-seam text-warning"></i> Core Alerts</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center py-3">
+                <div class="stat-value" style="font-size: 1.5rem;">{{ alert_summary.total_alerts }}</div>
+                <div class="stat-label"><i class="bi bi-bell"></i> Total Alerts</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Input Files Status -->
     <div class="col-md-6 mb-4">

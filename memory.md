@@ -1,7 +1,8 @@
 # EstradaBot — Session Memory
 
-**Last updated:** February 13, 2026
-**Current deployed version:** MVP 1.3 (revision estradabot-00016-tw2)
+**Last updated:** February 14, 2026
+**Current deployed version:** MVP 1.6 (on master)
+**Working branch version:** MVP 1.7+ (on claude/review-estradabot-build-plan-QZj5H)
 
 ---
 
@@ -13,22 +14,28 @@
 - Wants to skip GitHub PR review for his own deploys (owner direct deploy in CLAUDE.md)
 - Team members still go through PRs
 
-### Working Style
-- Sean dumps requirements as a stream of thoughts, then says **"Melt Banana"** as the go signal
-- **"Melt Banana" means:** start executing immediately, full speed, autonomous, parallelize, minimize questions. Only pause for genuinely destructive actions.
-- **DO NOT start building before the go signal.** Collect, think, but don't act until told.
-- Sean prefers to see plans acknowledged and understood before execution starts
+### Working Style — Melt Banana Protocol (MBP)
+
+Full protocol is defined in `CLAUDE.md` under "Melt Banana Protocol (MBP)". Summary:
+
+- **"Initiate MBP"** or **"Initiate Melt Banana Protocol"** → Enter collection mode. Stop all actions. Only digest prompts, acknowledge with numbered receipts, and write requirements to memory.md.
+- **"Melt Banana"**, **"MELT BANANA"**, or **"Cook the Cavendish"** → Go signal. Present consolidated briefing, then execute full speed.
+- **"Cancel MBP"**, **"Stand down"**, or **"Abort MBP"** → Cancel collection, keep notes, return to normal.
+- During MBP: number each prompt (MBP #1, #2, ...), update memory.md in real time, don't build anything.
+- On go signal: consolidated summary first, then autonomous execution.
 
 ---
 
 ## Current State of the App
 
-### What's Live (MVP 1.3)
+### What's Live (MVP 1.6)
 - Full DES scheduling engine with 5-tier priority system
 - Web app: Dashboard, Upload, Schedule (with filters), Reports, Simulation, Planner Workflow, Update Log
 - 4/5-day schedule toggle on the schedule page
 - Planner Workflow dashboard at `/planner` (3-scenario comparison, basic special requests, impact simulation)
-- Feedback form with file upload support (screenshots, Excel up to 25 MB) — **Sean's highest priority, delivered**
+- Dedicated Special Requests page (`/special-requests`) with Mode A/B, impact preview, approval queue
+- Mfg Eng Review page (`/mfg-eng-review`)
+- Feedback form with file upload support (screenshots, Excel up to 25 MB)
 - Local dev storage fallback (`USE_LOCAL_STORAGE=true` in .env)
 - Deployed on Cloud Run, files on GCS (`gs://estradabot-files`)
 
@@ -41,8 +48,10 @@
 
 ### Known Quirks / Tech Debt
 - **Role name inconsistency**: Code accepts both `customer_service` and `customerservice`. Should be normalized.
+- **Role case sensitivity BUG (FIXED)**: Roles from USERS env var were case-sensitive — `Planner` ≠ `planner`. Fixed by normalizing to lowercase on load.
+- **File name detection (FIXED)**: Files named `OSO_*.xlsx` and `SDR_*.xlsx` not recognized. Fixed to accept these patterns.
+- **DCP Report parser (BUILT)**: Parses DCPReport Excel files for WO-level special instructions and supermarket locations.
 - **Planner workflow not battle-tested**: 3-scenario simulation, special request queue, and publish flow are built but haven't been tested with real production data.
-- **No automated tests**: Manual testing only. Unit/integration tests on MVP 1.x backlog.
 - **`implementation_plan.md` is outdated**: References React/Node.js stack from original plan. Actual stack is Python/Flask.
 - **Global state in app.py**: `planner_state` and `published_schedule` are module-level dicts. Fine for single-instance Cloud Run.
 
@@ -99,14 +108,17 @@
 | 3-scenario simulation (4d/10h, 4d/12h, 5d/12h) | Built (MVP 1.3) |
 | Scenario comparison dashboard | Built (MVP 1.3) |
 | Base schedule selection | Built (MVP 1.3) |
-| Review special requests with impact | Built (basic, MVP 1.3) |
-| Approve/reject + generate final | Built (basic, MVP 1.3) |
+| Review special requests with impact | Built (MVP 1.4) |
+| Approve/reject + generate final | Built (MVP 1.4) |
 | Publish schedule | Built (MVP 1.3) |
-| **Dedicated Special Requests page** | **NOT BUILT** — only a collapsible form on planner page |
-| **Redline Requests** (material substitution) | **NOT BUILT** |
-| **Two modes** (modify existing / new WO placeholder) | **NOT BUILT** |
-| **WO reconciliation on data load** | **NOT BUILT** |
-| **Special Requests in left nav** | **NOT BUILT** |
+| Dedicated Special Requests page | Built (MVP 1.4) |
+| Redline Requests (material substitution) | Built (MVP 1.4) |
+| Two modes (modify existing / new WO placeholder) | Built (MVP 1.4) |
+| WO reconciliation on data load | Built (MVP 1.4) |
+| Special Requests in left nav | Built (MVP 1.4) |
+| **Order Holds** (exclude from scheduling) | **Built (MVP 1.7)** |
+| **Special Instructions column** on schedules | **Built (MVP 1.7)** — field ready, needs DCP parser |
+| **Simulation defaults to published schedule** | **Built (MVP 1.7)** |
 
 ---
 
@@ -283,6 +295,84 @@ See `MVP_2.0_Planning.md` Section 3 for the full to-do list. Key blockers:
 - **GCS Bucket**: `gs://estradabot-files`
 - Claude Code sandbox can push to `claude/*` branches but NOT directly to `master` (403)
 - Sean pushes to master locally after Claude merges on the branch
+
+---
+
+## Feedback Workflow for Dev Sessions
+
+To pull user feedback from the live site into a Claude Code session:
+
+1. **Export all feedback** (requires admin login):
+   ```bash
+   # From Sean's machine (logged in as admin in browser):
+   # Visit https://estradabot.biz/api/feedback/export
+   # Save the JSON file, then provide to Claude Code
+   ```
+
+2. **Download specific attachments**:
+   ```bash
+   # From the export JSON, each entry with an attachment has:
+   #   attachment.stored_as = filename in GCS
+   #   attachment.folder = "feedback/attachments" or "feedback/example_files"
+   # Download via:
+   # https://estradabot.biz/api/feedback/download/{stored_as}?folder={folder}
+   ```
+
+3. **Key files from feedback (Feb 13, 2026)**:
+   - `DCPReport_34.xlsx` (107 KB) — Contains WO-level special instructions for blast schedule column
+   - `OSO_021326.xlsx` (1498 KB) — Example Open Sales Order with non-standard naming
+   - `SDR_021326.XLSX` (196 KB) — Example Shop Dispatch with non-standard naming
+   - `Capture.PNG` (104 KB) — Screenshot of admin upload error
+   - `image.png` (251 KB) — Screenshot of planner permissions error
+
+4. **Feedback API** (admin only):
+   - `GET /api/feedback` — JSON list of all feedback entries
+   - `GET /api/feedback/export` — Downloadable JSON export
+   - `GET /api/feedback/download/{filename}?folder={folder}` — Download attachment
+
+---
+
+## MBP Session — February 13, 2026
+
+### Items Collected (6 total)
+
+1. **Roles bug** — Planner signed in but can't generate schedules. Case-sensitive role comparison: `Planner` ≠ `planner`. **FIXED** — normalized roles to lowercase in `load_users()`.
+2. **Admin upload error** — Loading documents as admin gave error. Root cause: file naming patterns (`OSO_*`, `SDR_*`) not recognized by the app. **FIXED** — added OSO/SDR patterns to file detection in gcs_storage, data_loader, upload.html, and app.py scrub logic.
+3. **Special Instructions column** — Add to Blast (next to Core Required), Core Oven (next to Core), and Master (far right) schedules. Data source: DCPReport file. **BUILT** — column added to all 3 exports. Field added to ScheduledOrder/PartState data model. Needs DCP parser to populate.
+4. **Pull all site feedback** — Download feedback entries, images, and reports. Integrate into work list. **DONE** — cataloged 9 entries, identified bugs and feature requests. Added `/api/feedback/export` endpoint.
+5. **Simulation defaults to published schedule** — No longer require fresh generate each time. **BUILT** — simulation data saved to GCS on generate, served from persisted data when no in-memory objects.
+6. **Order Hold status** — Flag orders as "on hold" to exclude from scheduling. Persists across uploads/simulations until removed. **BUILT** — separate holds system with API endpoints, UI on Special Requests page, scheduler exclusion logic.
+
+### Status: All 6 items COMPLETE. Deployed as part of MVP 1.7 branch.
+
+### Open Items from Feedback (Feb 13)
+- ~~DCPReport parser~~ — **BUILT** (Feb 14 session). Parses special instructions + supermarket locations.
+- ~~Capture.PNG error~~ — **Confirmed FIXED** by Sean. Was file detection bug.
+- MfgEng user role confusion — **Confirmed FIXED** by role case-sensitivity fix. May still need Sean to verify USERS env var entries.
+
+---
+
+## Session — February 14, 2026
+
+### Decisions Made
+
+1. **Feedback status tracking** — Add Status column to admin feedback table. Statuses: New, In-Work, Fixed, Resolved w/o Action. Backend API to update. New feedback defaults to "New."
+2. **Capture.PNG error** — Confirmed fixed by Sean. No further action.
+3. **Mode B reconciliation** — Decisions made:
+   - **Match behavior:** Flag for planner review (leave as-is, don't auto-apply)
+   - **Data mismatches:** When a placeholder matches a WO but part_number/customer don't line up, flag with `needs_review` and store mismatch details. Notification sent to admin/planner.
+   - **Expiration:** Unmatched placeholders auto-expire after 28 days (status → 'expired')
+4. **Notification bell system** — In-app bell icon with unread badge count, top-right navbar next to user login info. Dropdown shows recent notifications. Also viewable on a dedicated page. Auto-mark-as-read after 1 week.
+5. **Alert Reports** — All 4 types: Promise Date Risk, Core Shortage, Machine Utilization, Late Order Summary. Display: dashboard cards + dedicated Alerts page. Timing: auto-generate on schedule publish + on-demand refresh button.
+6. **Automated tests** — Starting with pytest framework, DES engine tests, API endpoint tests, parser tests.
+
+### Items Being Built (Feb 14)
+- [ ] Feedback status column + API
+- [ ] Notification bell system (storage, API, navbar bell, dropdown, auto-read expiry)
+- [ ] Alert reports engine (4 alert types)
+- [ ] Alert dashboard cards on main dashboard
+- [ ] Dedicated Alerts page with filtering/history
+- [ ] Pytest framework + core test suites
 
 ---
 

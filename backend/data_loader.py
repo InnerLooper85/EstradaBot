@@ -19,7 +19,8 @@ from parsers import (
     get_exclusion_summary,
     parse_shop_dispatch,
     parse_hot_list,
-    sort_hot_list_entries
+    sort_hot_list_entries,
+    parse_dcp_report
 )
 
 
@@ -35,6 +36,7 @@ class DataLoader:
         self.core_inventory = {}
         self.operations = {}
         self.hot_list_entries = []  # From Hot List file
+        self.supermarket_locations = {}  # From DCP report: WO# -> location
         self.validation_results = {}
 
     def _find_most_recent_file(self, pattern: str) -> Optional[Path]:
@@ -109,8 +111,11 @@ class DataLoader:
         else:
             dispatch_file = self._find_most_recent_file("Shop Dispatch*.XLSX")
             if not dispatch_file:
-                # Also try lowercase extension
                 dispatch_file = self._find_most_recent_file("Shop Dispatch*.xlsx")
+            if not dispatch_file:
+                dispatch_file = self._find_most_recent_file("SDR*.XLSX")
+            if not dispatch_file:
+                dispatch_file = self._find_most_recent_file("SDR*.xlsx")
 
         if not dispatch_file or not dispatch_file.exists():
             print("  No Shop Dispatch file found (optional)")
@@ -165,6 +170,44 @@ class DataLoader:
 
         return True
 
+    def load_dcp_report(self, filepath: Optional[str] = None) -> bool:
+        """
+        Load DCP report to extract supermarket locations.
+
+        Args:
+            filepath: Optional explicit filepath. If None, finds most recent file.
+
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if filepath:
+            dcp_file = Path(filepath)
+        else:
+            dcp_file = self._find_most_recent_file("DCPReport*.xlsx")
+            if not dcp_file:
+                dcp_file = self._find_most_recent_file("DCP Report*.xlsx")
+            if not dcp_file:
+                dcp_file = self._find_most_recent_file("DCP_Report*.xlsx")
+
+        if not dcp_file or not dcp_file.exists():
+            print("  No DCP Report file found (optional)")
+            return False
+
+        print(f"  Loading: {dcp_file.name}")
+        self.supermarket_locations = parse_dcp_report(str(dcp_file))
+
+        if self.supermarket_locations:
+            # Stamp supermarket locations onto matching orders
+            matched = 0
+            for order in self.orders:
+                wo = order.get('wo_number')
+                if wo and wo in self.supermarket_locations:
+                    order['supermarket_location'] = self.supermarket_locations[wo]
+                    matched += 1
+            print(f"  [OK] Matched {matched} orders with supermarket locations")
+
+        return True
+
     def load_all(self) -> bool:
         """
         Load all data files.
@@ -180,6 +223,10 @@ class DataLoader:
             # 1. Load Sales Orders (find most recent file)
             print("\n[1/6] Loading Open Sales Order...")
             sales_order_file = self._find_most_recent_file("Open Sales Order*.xlsx")
+            if not sales_order_file:
+                sales_order_file = self._find_most_recent_file("OSO*.xlsx")
+            if not sales_order_file:
+                sales_order_file = self._find_most_recent_file("OSO*.XLSX")
             if not sales_order_file:
                 print("[ERROR] No Open Sales Order file found!")
                 return False
@@ -225,6 +272,10 @@ class DataLoader:
             # 3b. Load Hot List for priority scheduling
             print("\n[3b/6] Loading Hot List...")
             self.load_hot_list()
+
+            # 3c. Load DCP Report for supermarket locations (optional)
+            print("\n[3c/6] Loading DCP Report...")
+            self.load_dcp_report()
 
             # 4. Load Core Mapping
             print("\n[4/6] Loading Core Mapping...")

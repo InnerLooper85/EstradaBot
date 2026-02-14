@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.6</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.7</span>
 </div>
 
 <!-- Feedback Form -->
@@ -97,6 +97,64 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.7 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.7</span>
+                <small class="text-muted ms-2">February 2026 - Alerts, Notifications &amp; Quality of Life</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Alert Reports:</strong> Late orders, promise date risk, core shortage, and machine utilization alerts — auto-generated on schedule publish with on-demand refresh
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Alert Dashboard Cards:</strong> At-a-glance alert summary on the main dashboard with link to dedicated Alerts page
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Notification Bell:</strong> In-app notification system with unread badge, dropdown panel, and dedicated notifications page. Auto-marks as read after 7 days.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Feedback Status Tracking:</strong> Admin can set feedback status (New, In-Work, Fixed, Resolved w/o Action) directly from the feedback table
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Expanded Redline Requests:</strong> Cutback Length Change, Hip &amp; Cap Injection, and Full Restrict Injection request types added
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Special Instructions Column:</strong> Added to Blast, Core Oven, and Master schedule exports — populated from approved redline requests
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>DCP Report Integration:</strong> Upload DCP reports to populate Supermarket Location column on the Blast schedule
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Order Holds:</strong> Place orders on hold to exclude from scheduling; persists across uploads and schedule generations
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Simulation Defaults to Published:</strong> Visual simulation now loads from the last published schedule without requiring a fresh generate
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Mode B Reconciliation:</strong> Data mismatch detection when placeholders match uploaded WOs; 28-day auto-expiration for unmatched placeholders
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Bug Fixes:</strong> Role case sensitivity (Planner vs planner), file name detection (OSO_*, SDR_* patterns)
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Automated Tests:</strong> 51 pytest tests covering DES engine, API endpoints, and page access
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.6 -->
         <div class="mb-4">
             <h5>
@@ -392,10 +450,10 @@
 
                 count.textContent = data.feedback.length;
                 let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr>' +
-                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Page</th><th>Message</th><th>File</th>' +
+                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Status</th><th>Page</th><th>Message</th><th>File</th>' +
                     '</tr></thead><tbody>';
 
-                data.feedback.forEach(fb => {
+                data.feedback.forEach((fb, idx) => {
                     const date = new Date(fb.submitted_at).toLocaleDateString('en-US', {
                         month: '2-digit', day: '2-digit', year: '2-digit',
                         hour: '2-digit', minute: '2-digit'
@@ -403,6 +461,32 @@
                     const priorityClass = fb.priority === 'High' ? 'text-danger' :
                                          fb.priority === 'Medium' ? 'text-warning' : 'text-muted';
                     const categoryClass = fb.category === 'Example File' ? 'bg-info' : 'bg-secondary';
+
+                    const status = fb.status || 'New';
+                    const statusColors = {
+                        'New': 'bg-primary',
+                        'In-Work': 'bg-warning text-dark',
+                        'Fixed': 'bg-success',
+                        'Resolved w/o Action': 'bg-secondary'
+                    };
+                    const statusBadge = statusColors[status] || 'bg-secondary';
+
+                    const statusCell = `<div class="dropdown">
+                        <button class="btn btn-sm dropdown-toggle p-0 border-0" type="button"
+                                data-bs-toggle="dropdown" style="background: none;">
+                            <span class="badge ${statusBadge}">${status}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-sm">
+                            <li><a class="dropdown-item ${status === 'New' ? 'active' : ''}" href="#"
+                                   onclick="updateFeedbackStatus(${idx}, 'New'); return false;">New</a></li>
+                            <li><a class="dropdown-item ${status === 'In-Work' ? 'active' : ''}" href="#"
+                                   onclick="updateFeedbackStatus(${idx}, 'In-Work'); return false;">In-Work</a></li>
+                            <li><a class="dropdown-item ${status === 'Fixed' ? 'active' : ''}" href="#"
+                                   onclick="updateFeedbackStatus(${idx}, 'Fixed'); return false;">Fixed</a></li>
+                            <li><a class="dropdown-item ${status === 'Resolved w/o Action' ? 'active' : ''}" href="#"
+                                   onclick="updateFeedbackStatus(${idx}, 'Resolved w/o Action'); return false;">Resolved w/o Action</a></li>
+                        </ul>
+                    </div>`;
 
                     let fileCell = '-';
                     if (fb.attachment) {
@@ -422,6 +506,7 @@
                         <td>${fb.username || '-'}</td>
                         <td><span class="badge ${categoryClass}">${fb.category}</span></td>
                         <td class="${priorityClass}">${fb.priority}</td>
+                        <td>${statusCell}</td>
                         <td>${fb.page || '-'}</td>
                         <td>${fb.message.substring(0, 100)}${fb.message.length > 100 ? '...' : ''}</td>
                         <td>${fileCell}</td>
@@ -436,6 +521,23 @@
                 document.getElementById('feedbackList').innerHTML =
                     '<p class="text-danger text-center py-3">Failed to load feedback.</p>';
             });
+    }
+
+    function updateFeedbackStatus(index, newStatus) {
+        fetch(`/api/feedback/${index}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadFeedback();
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => alert('Error: ' + error.message));
     }
 
     // Load on page load

@@ -107,6 +107,8 @@
                         <th>Description</th>
                         <th>Customer</th>
                         <th>Core</th>
+                        <th>Supermarket Loc</th>
+                        <th>Special Instructions</th>
                         <th>Rubber</th>
                         <th>Priority</th>
                         <th>BLAST Date</th>
@@ -126,6 +128,8 @@
                         <th>Description</th>
                         <th>Customer</th>
                         <th>Core</th>
+                        <th>Supermarket Loc</th>
+                        <th>Special Instructions</th>
                         <th>Rubber</th>
                         <th>Priority</th>
                         <th>BLAST Date</th>
@@ -235,11 +239,11 @@
                     dataTable.destroy();
                 }
 
-                // Dropdown columns: Rubber (6), Priority (7), Status (12)
+                // Dropdown columns: Rubber (8), Priority (9), Status (14)
                 const dropdownColumns = {
-                    6: ['XE', 'HR', 'XD', 'XR'],
-                    7: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
-                    12: ['On Time', 'Late', 'At Risk']
+                    8: ['XE', 'HR', 'XD', 'XR'],
+                    9: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
+                    14: ['On Time', 'Late', 'At Risk']
                 };
 
                 // Build filter inputs in tfoot before DataTable init
@@ -261,7 +265,7 @@
                 dataTable = $('#scheduleTable').DataTable({
                     pageLength: 25,
                     lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                    order: [[8, 'asc']],  // Sort by BLAST date
+                    order: [[10, 'asc']],  // Sort by BLAST date
                     dom: 'Blfrtip',
                     buttons: [
                         {
@@ -278,7 +282,8 @@
                     ],
                     columnDefs: [
                         { targets: [3], visible: false }  // Hide description by default
-                    ]
+                    ],
+                    autoWidth: false
                 });
 
                 // Wire up column filters
@@ -346,6 +351,9 @@
         const desc = order.description || '';
         const customer = order.customer || '';
 
+        const specialInstr = order.special_instructions || '';
+        const smLoc = order.supermarket_location || '';
+
         return `<tr>
             <td><strong>${order.wo_number}</strong></td>
             <td>${order.serial_number || '-'}</td>
@@ -353,6 +361,8 @@
             <td>${desc.substring(0, 40)}${desc.length > 40 ? '...' : ''}</td>
             <td>${customer.substring(0, 25)}${customer.length > 25 ? '...' : ''}</td>
             <td>${order.core || '-'}</td>
+            <td>${smLoc ? '<span class="badge bg-light text-dark">' + smLoc + '</span>' : '-'}</td>
+            <td>${specialInstr ? '<small>' + specialInstr.substring(0, 40) + (specialInstr.length > 40 ? '...' : '') + '</small>' : '-'}</td>
             <td>${order.rubber_type || '-'}</td>
             <td>${priorityBadge}</td>
             <td data-order="${order.blast_date || ''}">${blastDate}</td>

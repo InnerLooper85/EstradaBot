@@ -296,7 +296,8 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         'shop_dispatch': None,
         'hot_list': None,
         'core_mapping': None,
-        'process_map': None
+        'process_map': None,
+        'dcp_report': None
     }
 
     all_files = list_files(UPLOADS_FOLDER)
@@ -305,10 +306,10 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         filename = file_info['name']
         fname_lower = filename.lower().replace('_', ' ')
 
-        if 'open sales order' in fname_lower:
+        if 'open sales order' in fname_lower or fname_lower.startswith('oso'):
             if files['sales_order'] is None or file_info['modified'] > files['sales_order']['modified']:
                 files['sales_order'] = file_info
-        elif 'shop dispatch' in fname_lower:
+        elif 'shop dispatch' in fname_lower or fname_lower.startswith('sdr'):
             if files['shop_dispatch'] is None or file_info['modified'] > files['shop_dispatch']['modified']:
                 files['shop_dispatch'] = file_info
         elif 'hot list' in fname_lower or 'hot_list' in fname_lower:
@@ -320,6 +321,9 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         elif 'stators process' in fname_lower or 'process vsm' in fname_lower:
             if files['process_map'] is None or file_info['modified'] > files['process_map']['modified']:
                 files['process_map'] = file_info
+        elif 'dcpreport' in fname_lower or 'dcp report' in fname_lower:
+            if files['dcp_report'] is None or file_info['modified'] > files['dcp_report']['modified']:
+                files['dcp_report'] = file_info
 
     return files
 
@@ -666,4 +670,215 @@ def load_published_schedule() -> Optional[dict]:
         return None
     except Exception as e:
         print(f"[GCS] Failed to load published schedule: {e}")
+        return None
+
+
+# ============== Simulation Data Persistence ==============
+
+SIMULATION_DATA_FILE = 'state/simulation_data.json'
+
+
+def save_simulation_data(sim_data: dict) -> bool:
+    """Save pre-formatted simulation data for the visual factory floor."""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(SIMULATION_DATA_FILE, sim_data)
+            print(f"[LOCAL] Simulation data saved")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save simulation data: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(SIMULATION_DATA_FILE)
+
+    try:
+        json_data = json.dumps(sim_data, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Simulation data saved")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save simulation data: {e}")
+        return False
+
+
+def load_simulation_data() -> Optional[dict]:
+    """Load persisted simulation data."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(SIMULATION_DATA_FILE)
+            if data:
+                print(f"[LOCAL] Loaded simulation data")
+            return data
+        except Exception:
+            return None
+
+    bucket = get_bucket()
+    blob = bucket.blob(SIMULATION_DATA_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        print(f"[GCS] Loaded simulation data")
+        return data
+    except NotFound:
+        return None
+    except Exception as e:
+        print(f"[GCS] Failed to load simulation data: {e}")
+        return None
+
+
+# ============== Order Holds Persistence ==============
+
+ORDER_HOLDS_FILE = 'state/order_holds.json'
+
+
+def save_order_holds(holds: dict) -> bool:
+    """Save order holds. holds = {wo_number: {held_by, held_at, reason}}"""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(ORDER_HOLDS_FILE, holds)
+            print(f"[LOCAL] Saved order holds ({len(holds)} total)")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save order holds: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(ORDER_HOLDS_FILE)
+
+    try:
+        json_data = json.dumps(holds, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved order holds ({len(holds)} total)")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save order holds: {e}")
+        return False
+
+
+def load_order_holds() -> dict:
+    """Load order holds."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(ORDER_HOLDS_FILE)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    bucket = get_bucket()
+    blob = bucket.blob(ORDER_HOLDS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, dict) else {}
+    except NotFound:
+        return {}
+    except Exception as e:
+        print(f"[GCS] Failed to load order holds: {e}")
+        return {}
+
+
+# ============== Notification Persistence ==============
+
+NOTIFICATIONS_FILE = 'state/notifications.json'
+
+
+def save_notifications(notifications: list) -> bool:
+    """Save all notifications."""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(NOTIFICATIONS_FILE, notifications)
+            print(f"[LOCAL] Saved notifications ({len(notifications)} total)")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save notifications: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(NOTIFICATIONS_FILE)
+
+    try:
+        json_data = json.dumps(notifications, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved notifications ({len(notifications)} total)")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save notifications: {e}")
+        return False
+
+
+def load_notifications() -> list:
+    """Load all notifications."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(NOTIFICATIONS_FILE)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    bucket = get_bucket()
+    blob = bucket.blob(NOTIFICATIONS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, list) else []
+    except NotFound:
+        return []
+    except Exception as e:
+        print(f"[GCS] Failed to load notifications: {e}")
+        return []
+
+
+# ============== Alert Persistence ==============
+
+ALERTS_FILE = 'state/alerts.json'
+
+
+def save_alerts(alerts: dict) -> bool:
+    """Save alert report data. alerts = {generated_at, alerts: [...], summary: {...}}"""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(ALERTS_FILE, alerts)
+            print(f"[LOCAL] Saved alerts")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save alerts: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(ALERTS_FILE)
+
+    try:
+        json_data = json.dumps(alerts, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved alerts")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save alerts: {e}")
+        return False
+
+
+def load_alerts() -> Optional[dict]:
+    """Load alert report data."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(ALERTS_FILE)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    bucket = get_bucket()
+    blob = bucket.blob(ALERTS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, dict) else None
+    except NotFound:
+        return None
+    except Exception as e:
+        print(f"[GCS] Failed to load alerts: {e}")
         return None

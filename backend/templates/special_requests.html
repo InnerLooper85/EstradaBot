@@ -74,6 +74,10 @@
                     <select class="form-select" id="reqType" onchange="toggleRequestFields()">
                         <option value="hot_list">Hot List (Priority Bump)</option>
                         <option value="rubber_override">Redline (Rubber Substitution)</option>
+                        <option value="cutback_length">Redline (Cutback Length Change)</option>
+                        <option value="hip_cap_injection">Redline (Hip &amp; Cap Injection)</option>
+                        <option value="full_restrict_injection">Redline (Full Restrict Injection)</option>
+                        <option value="hold">Hold (Exclude from Scheduling)</option>
                     </select>
                 </div>
 
@@ -92,9 +96,9 @@
 
                 <!-- Redline fields -->
                 <div class="col-md-3" id="rubberField" style="display:none;">
-                    <label class="form-label">Rubber Override</label>
+                    <label class="form-label">Rubber Override <small class="text-muted">(if applicable)</small></label>
                     <select class="form-select" id="reqRubberOverride">
-                        <option value="">Select...</option>
+                        <option value="">None / N/A</option>
                         <option value="XE">XE</option>
                         <option value="HR">HR</option>
                         <option value="XD">XD</option>
@@ -151,6 +155,34 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Current Holds -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-pause-circle"></i> Orders On Hold <span class="badge bg-dark" id="holdCount">0</span></span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover" id="holdsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>WO#</th>
+                        <th>Held By</th>
+                        <th>Date</th>
+                        <th>Reason</th>
+                        {% if user_can_approve %}
+                        <th>Actions</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody id="holdsTableBody">
+                    <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <small class="text-muted">Held orders are excluded from all schedule generation and simulations until the hold is removed.</small>
     </div>
 </div>
 
@@ -240,6 +272,7 @@
     .status-badge-approved { background-color: #198754; }
     .status-badge-rejected { background-color: #dc3545; }
     .status-badge-published { background-color: #0d6efd; }
+    .status-badge-hold { background-color: #6c757d; }
     .mode-a-indicator { color: #198754; }
     .mode-b-indicator { color: #fd7e14; }
     #woSearchResults .list-group-item { cursor: pointer; font-size: 0.875rem; }
@@ -257,6 +290,7 @@
     $(document).ready(function() {
         loadScheduleData();
         loadQueue();
+        loadHolds();
     });
 
     // ========== WO Search / Autocomplete ==========
@@ -357,10 +391,16 @@
 
     // ========== Form Toggle Logic ==========
 
+    const REDLINE_TYPES = ['rubber_override', 'cutback_length', 'hip_cap_injection', 'full_restrict_injection'];
+
     function toggleRequestFields() {
         const type = $('#reqType').val();
-        if (type === 'rubber_override') {
+        if (REDLINE_TYPES.includes(type)) {
             $('#rubberField').show();
+            $('#priorityField').hide();
+            $('#needByField').hide();
+        } else if (type === 'hold') {
+            $('#rubberField').hide();
             $('#priorityField').hide();
             $('#needByField').hide();
         } else {
@@ -459,12 +499,8 @@
         if (requestType === 'hot_list') {
             payload.is_asap = $('#reqPriority').val() === 'true';
             payload.need_by_date = $('#reqNeedByDate').val() || null;
-        } else if (requestType === 'rubber_override') {
-            payload.rubber_override = $('#reqRubberOverride').val();
-            if (!payload.rubber_override) {
-                showToast('Select a rubber type for redline requests.', 'error');
-                return null;
-            }
+        } else if (REDLINE_TYPES.includes(requestType)) {
+            payload.rubber_override = $('#reqRubberOverride').val() || null;
             payload.is_asap = false;
         }
 
@@ -478,6 +514,31 @@
         if (!payload) return;
 
         $('#btnSubmit').prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Submitting...');
+
+        // Hold requests go to the hold API directly
+        if (payload.request_type === 'hold') {
+            fetch('/api/order-holds', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({wo_number: payload.wo_number, reason: payload.reason})
+            })
+            .then(r => r.json())
+            .then(data => {
+                $('#btnSubmit').prop('disabled', false).html('<i class="bi bi-send"></i> Make Request');
+                if (data.error) { showToast(data.error, 'error'); return; }
+                showToast(`WO ${payload.wo_number} placed on hold`);
+                $('#specialRequestForm')[0].reset();
+                $('#woSearch').val('');
+                resetOrderDetails();
+                toggleRequestFields();
+                loadHolds();
+            })
+            .catch(err => {
+                $('#btnSubmit').prop('disabled', false).html('<i class="bi bi-send"></i> Make Request');
+                showToast('Error: ' + err.message, 'error');
+            });
+            return;
+        }
 
         fetch('/api/special-requests', {
             method: 'POST',
@@ -531,6 +592,63 @@
             .catch(err => console.error('Failed to load queue:', err));
     }
 
+    // ========== Order Holds ==========
+
+    function loadHolds() {
+        fetch('/api/order-holds')
+            .then(r => r.json())
+            .then(data => {
+                const holds = data.holds || {};
+                const entries = Object.entries(holds);
+                $('#holdCount').text(entries.length);
+
+                const tbody = $('#holdsTableBody');
+                tbody.empty();
+
+                if (entries.length === 0) {
+                    const colspan = userCanApprove ? 5 : 4;
+                    tbody.append(`<tr><td colspan="${colspan}" class="text-center text-muted">No orders on hold</td></tr>`);
+                    return;
+                }
+
+                entries.sort((a, b) => (b[1].held_at || '').localeCompare(a[1].held_at || ''));
+
+                entries.forEach(([wo, info]) => {
+                    const heldAt = info.held_at ? new Date(info.held_at).toLocaleString() : '-';
+                    let row = `<tr>
+                        <td><strong>${wo}</strong></td>
+                        <td>${info.held_by || '-'}</td>
+                        <td><small>${heldAt}</small></td>
+                        <td>${info.reason || '-'}</td>`;
+                    if (userCanApprove) {
+                        row += `<td>
+                            <button class="btn btn-outline-success btn-sm py-0 px-2" onclick="removeHold('${wo}')" title="Remove Hold">
+                                <i class="bi bi-play-circle"></i> Release
+                            </button>
+                        </td>`;
+                    }
+                    row += '</tr>';
+                    tbody.append(row);
+                });
+            })
+            .catch(err => console.error('Failed to load holds:', err));
+    }
+
+    function removeHold(woNumber) {
+        if (!confirm(`Remove hold for WO ${woNumber}? The order will be included in future schedules.`)) return;
+
+        fetch(`/api/order-holds/${woNumber}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { showToast(data.error, 'error'); return; }
+                showToast(`Hold removed for WO ${woNumber}`);
+                loadHolds();
+            })
+            .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+
+    // ========== Approval Queue ==========
+
     function renderQueue(requests) {
         const filtered = currentFilter === 'all' ? requests :
             requests.filter(r => r.status === currentFilter);
@@ -553,7 +671,11 @@
             const typeBadges = {
                 'hot_list': '<span class="badge bg-danger">Hot List</span>',
                 'expedite': '<span class="badge bg-info">Expedite</span>',
-                'rubber_override': '<span class="badge bg-secondary">Redline</span>',
+                'rubber_override': '<span class="badge bg-secondary">Redline: Rubber Sub</span>',
+                'cutback_length': '<span class="badge bg-secondary">Redline: Cutback</span>',
+                'hip_cap_injection': '<span class="badge bg-secondary">Redline: Hip&Cap</span>',
+                'full_restrict_injection': '<span class="badge bg-secondary">Redline: Full Restrict</span>',
+                'hold': '<span class="badge bg-dark">Hold</span>',
             };
             const typeBadge = typeBadges[req.request_type] || `<span class="badge bg-secondary">${req.request_type}</span>`;
             const priorityBadge = req.is_asap

@@ -54,13 +54,13 @@
                     <tbody>
                         <tr>
                             <td><i class="bi bi-file-earmark-excel text-success"></i> Sales Order</td>
-                            <td><code>Open Sales Order*.xlsx</code></td>
+                            <td><code>Open Sales Order*.xlsx</code> or <code>OSO*.xlsx</code></td>
                             <td><span class="badge bg-danger">Required</span></td>
                             <td>Open work orders with BLAST dates, customers, promise dates</td>
                         </tr>
                         <tr>
                             <td><i class="bi bi-file-earmark-excel text-success"></i> Shop Dispatch</td>
-                            <td><code>Shop Dispatch*.xlsx</code></td>
+                            <td><code>Shop Dispatch*.xlsx</code> or <code>SDR*.xlsx</code></td>
                             <td><span class="badge bg-secondary">Optional</span></td>
                             <td>Work center operations and routing data</td>
                         </tr>
@@ -69,6 +69,12 @@
                             <td><code>HOT LIST*.xlsx</code></td>
                             <td><span class="badge bg-secondary">Optional</span></td>
                             <td>Priority orders (ASAP or dated)</td>
+                        </tr>
+                        <tr>
+                            <td><i class="bi bi-file-earmark-excel text-info"></i> DCP Report</td>
+                            <td><code>DCPReport*.xlsx</code></td>
+                            <td><span class="badge bg-secondary">Optional</span></td>
+                            <td>Supermarket locations from data collection points</td>
                         </tr>
                         {% if current_user.role == 'admin' %}
                         <tr>
@@ -141,6 +147,24 @@
                         </div>
                         {% if files.hot_list %}
                             <span class="badge bg-warning text-dark"><i class="bi bi-exclamation"></i></span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
+                        {% endif %}
+                    </div>
+
+                    <!-- DCP Report -->
+                    <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <div>
+                            <strong>DCP Report</strong><br>
+                            {% if files.dcp_report %}
+                                <small class="text-info">{{ files.dcp_report.name }}</small><br>
+                                <small class="text-muted">{{ files.dcp_report.modified.strftime('%m/%d/%Y %H:%M') }}</small>
+                            {% else %}
+                                <small class="text-muted">Optional - not uploaded</small>
+                            {% endif %}
+                        </div>
+                        {% if files.dcp_report %}
+                            <span class="badge bg-info"><i class="bi bi-check"></i></span>
                         {% else %}
                             <span class="badge bg-secondary"><i class="bi bi-dash"></i></span>
                         {% endif %}
@@ -266,10 +290,11 @@
 
     // Detect file type from filename
     function detectFileType(filename) {
-        const lower = filename.toLowerCase();
-        if (lower.includes('open sales order')) return 'sales_order';
-        if (lower.includes('shop dispatch')) return 'shop_dispatch';
+        const lower = filename.toLowerCase().replace(/_/g, ' ');
+        if (lower.includes('open sales order') || lower.startsWith('oso')) return 'sales_order';
+        if (lower.includes('shop dispatch') || lower.startsWith('sdr')) return 'shop_dispatch';
         if (lower.includes('hot list')) return 'hot_list';
+        if (lower.includes('dcpreport') || lower.includes('dcp report')) return 'dcp_report';
         if (lower.includes('core mapping')) return 'core_mapping';
         return 'unknown';
     }
