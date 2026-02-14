@@ -74,6 +74,9 @@
                     <select class="form-select" id="reqType" onchange="toggleRequestFields()">
                         <option value="hot_list">Hot List (Priority Bump)</option>
                         <option value="rubber_override">Redline (Rubber Substitution)</option>
+                        <option value="cutback_length">Redline (Cutback Length Change)</option>
+                        <option value="hip_cap_injection">Redline (Hip &amp; Cap Injection)</option>
+                        <option value="full_restrict_injection">Redline (Full Restrict Injection)</option>
                         <option value="hold">Hold (Exclude from Scheduling)</option>
                     </select>
                 </div>
@@ -93,9 +96,9 @@
 
                 <!-- Redline fields -->
                 <div class="col-md-3" id="rubberField" style="display:none;">
-                    <label class="form-label">Rubber Override</label>
+                    <label class="form-label">Rubber Override <small class="text-muted">(if applicable)</small></label>
                     <select class="form-select" id="reqRubberOverride">
-                        <option value="">Select...</option>
+                        <option value="">None / N/A</option>
                         <option value="XE">XE</option>
                         <option value="HR">HR</option>
                         <option value="XD">XD</option>
@@ -388,9 +391,11 @@
 
     // ========== Form Toggle Logic ==========
 
+    const REDLINE_TYPES = ['rubber_override', 'cutback_length', 'hip_cap_injection', 'full_restrict_injection'];
+
     function toggleRequestFields() {
         const type = $('#reqType').val();
-        if (type === 'rubber_override') {
+        if (REDLINE_TYPES.includes(type)) {
             $('#rubberField').show();
             $('#priorityField').hide();
             $('#needByField').hide();
@@ -494,12 +499,8 @@
         if (requestType === 'hot_list') {
             payload.is_asap = $('#reqPriority').val() === 'true';
             payload.need_by_date = $('#reqNeedByDate').val() || null;
-        } else if (requestType === 'rubber_override') {
-            payload.rubber_override = $('#reqRubberOverride').val();
-            if (!payload.rubber_override) {
-                showToast('Select a rubber type for redline requests.', 'error');
-                return null;
-            }
+        } else if (REDLINE_TYPES.includes(requestType)) {
+            payload.rubber_override = $('#reqRubberOverride').val() || null;
             payload.is_asap = false;
         }
 
@@ -670,7 +671,10 @@
             const typeBadges = {
                 'hot_list': '<span class="badge bg-danger">Hot List</span>',
                 'expedite': '<span class="badge bg-info">Expedite</span>',
-                'rubber_override': '<span class="badge bg-secondary">Redline</span>',
+                'rubber_override': '<span class="badge bg-secondary">Redline: Rubber Sub</span>',
+                'cutback_length': '<span class="badge bg-secondary">Redline: Cutback</span>',
+                'hip_cap_injection': '<span class="badge bg-secondary">Redline: Hip&Cap</span>',
+                'full_restrict_injection': '<span class="badge bg-secondary">Redline: Full Restrict</span>',
                 'hold': '<span class="badge bg-dark">Hold</span>',
             };
             const typeBadge = typeBadges[req.request_type] || `<span class="badge bg-secondary">${req.request_type}</span>`;

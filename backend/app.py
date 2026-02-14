@@ -678,7 +678,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
             'on_time': order.on_time,
             'on_time_status': status,
             'is_reline': order.is_reline,
-            'special_instructions': order.special_instructions or ''
+            'special_instructions': order.special_instructions or '',
+            'supermarket_location': order.supermarket_location or ''
         })
 
     stats = {
@@ -861,7 +862,8 @@ def _serialize_orders_from_objects(orders, stats_ref):
             'turnaround_days': order.turnaround_days or '',
             'on_time_status': status,
             'is_rework': order.is_reline,
-            'special_instructions': order.special_instructions or ''
+            'special_instructions': order.special_instructions or '',
+            'supermarket_location': order.supermarket_location or ''
         })
 
     turnaround_times = [o.turnaround_days for o in orders if o.turnaround_days]
@@ -898,7 +900,8 @@ def _serialize_orders_from_dicts(serialized_orders):
             'turnaround_days': order.get('turnaround_days', ''),
             'on_time_status': order.get('on_time_status', 'On Time'),
             'is_rework': order.get('is_reline', False),
-            'special_instructions': order.get('special_instructions', '')
+            'special_instructions': order.get('special_instructions', ''),
+            'supermarket_location': order.get('supermarket_location', '')
         })
     return orders_data
 
@@ -1414,6 +1417,32 @@ def set_base_schedule():
     })
 
 
+REDLINE_TYPE_LABELS = {
+    'rubber_override': 'Rubber Substitution',
+    'cutback_length': 'Cutback Length Change',
+    'hip_cap_injection': 'Hip & Cap Injection',
+    'full_restrict_injection': 'Full Restrict Injection',
+}
+
+def _build_special_instructions(req):
+    """Build special instructions string from an approved request.
+    Format: "Request Type" - "Rubber Override" (if applicable) - "Reason/Comments"
+    """
+    request_type = req.get('request_type', '')
+    label = REDLINE_TYPE_LABELS.get(request_type)
+    if not label:
+        return ''  # Not a redline type — no special instructions
+
+    parts = [label]
+    rubber = req.get('rubber_override')
+    if rubber:
+        parts.append(rubber)
+    reason = (req.get('reason') or req.get('comments') or '').strip()
+    if reason:
+        parts.append(reason)
+    return ' - '.join(parts)
+
+
 @app.route('/api/special-requests', methods=['GET'])
 @login_required
 def get_special_requests():
@@ -1594,6 +1623,7 @@ def impact_preview():
             'description': '',
             'customer': '',
             'source': 'impact_preview',
+            'special_instructions': _build_special_instructions(data),
         }]
 
         # Run with the proposed request
@@ -1903,6 +1933,7 @@ def generate_final_schedule():
                 'customer': '',
                 'source': 'app_request',
                 'request_id': req['id'],
+                'special_instructions': _build_special_instructions(req),
             })
 
         # Run final schedule
@@ -1997,6 +2028,7 @@ def generate_final_schedule():
                 'on_time_status': status,
                 'is_reline': order.is_reline,
                 'special_instructions': order.special_instructions or '',
+                'supermarket_location': order.supermarket_location or '',
             })
 
         turnaround_times = [o.turnaround_days for o in final_orders if o.turnaround_days]

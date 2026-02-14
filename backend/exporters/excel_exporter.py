@@ -92,6 +92,7 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Blast Date': order.blast_date.strftime('%m/%d/%Y') if order.blast_date else '',
             'Blast Time': order.blast_date.strftime('%H:%M') if order.blast_date else '',
             'Core Required': order.assigned_core,
+            'Supermarket Location': getattr(order, 'supermarket_location', '') or '',
             'Special Instructions': getattr(order, 'special_instructions', '') or '',
             'Planned Desma': getattr(order, 'planned_desma', '') or ''
         })

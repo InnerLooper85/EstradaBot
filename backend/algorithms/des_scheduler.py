@@ -556,7 +556,8 @@ class PartState:
     creation_date: Optional[datetime] = None
     basic_finish_date: Optional[datetime] = None  # From SAP - used for On-Time calculation
     serial_number: Optional[str] = None  # From Sales Order report
-    special_instructions: Optional[str] = None  # From DCP report or manual entry
+    special_instructions: Optional[str] = None  # From redline requests
+    supermarket_location: Optional[str] = None  # From DCP report
 
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
@@ -944,6 +945,9 @@ class DESScheduler:
 
             if wo_number in hot_list_lookup:
                 entry = hot_list_lookup[wo_number]
+                # Propagate special_instructions from hot list/app requests
+                if entry.get('special_instructions'):
+                    o['order']['special_instructions'] = entry['special_instructions']
                 if entry.get('is_asap'):
                     o['order']['priority'] = 'Hot-ASAP'
                     hot_list_asap.append(o)
@@ -1079,7 +1083,8 @@ class DESScheduler:
                     basic_finish_date=order.get('basic_finish_date'),
                     serial_number=order.get('serial_number'),
                     priority=order.get('priority', 'Normal'),
-                    special_instructions=order.get('special_instructions')
+                    special_instructions=order.get('special_instructions'),
+                    supermarket_location=order.get('supermarket_location')
                 )
 
                 self.parts[part_id] = part_state
@@ -1376,7 +1381,8 @@ class DESScheduler:
                 planned_desma=part.planned_desma,
                 priority=part.priority,
                 serial_number=part.serial_number,
-                special_instructions=part.special_instructions
+                special_instructions=part.special_instructions,
+                supermarket_location=part.supermarket_location
             )
 
             self.scheduled_orders.append(scheduled)

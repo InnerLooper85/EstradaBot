@@ -296,7 +296,8 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         'shop_dispatch': None,
         'hot_list': None,
         'core_mapping': None,
-        'process_map': None
+        'process_map': None,
+        'dcp_report': None
     }
 
     all_files = list_files(UPLOADS_FOLDER)
@@ -320,6 +321,9 @@ def get_uploaded_files_info() -> Dict[str, Optional[Dict]]:
         elif 'stators process' in fname_lower or 'process vsm' in fname_lower:
             if files['process_map'] is None or file_info['modified'] > files['process_map']['modified']:
                 files['process_map'] = file_info
+        elif 'dcpreport' in fname_lower or 'dcp report' in fname_lower:
+            if files['dcp_report'] is None or file_info['modified'] > files['dcp_report']['modified']:
+                files['dcp_report'] = file_info
 
     return files
 
