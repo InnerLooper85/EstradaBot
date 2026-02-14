@@ -778,3 +778,107 @@ def load_order_holds() -> dict:
     except Exception as e:
         print(f"[GCS] Failed to load order holds: {e}")
         return {}
+
+
+# ============== Notification Persistence ==============
+
+NOTIFICATIONS_FILE = 'state/notifications.json'
+
+
+def save_notifications(notifications: list) -> bool:
+    """Save all notifications."""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(NOTIFICATIONS_FILE, notifications)
+            print(f"[LOCAL] Saved notifications ({len(notifications)} total)")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save notifications: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(NOTIFICATIONS_FILE)
+
+    try:
+        json_data = json.dumps(notifications, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved notifications ({len(notifications)} total)")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save notifications: {e}")
+        return False
+
+
+def load_notifications() -> list:
+    """Load all notifications."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(NOTIFICATIONS_FILE)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    bucket = get_bucket()
+    blob = bucket.blob(NOTIFICATIONS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, list) else []
+    except NotFound:
+        return []
+    except Exception as e:
+        print(f"[GCS] Failed to load notifications: {e}")
+        return []
+
+
+# ============== Alert Persistence ==============
+
+ALERTS_FILE = 'state/alerts.json'
+
+
+def save_alerts(alerts: dict) -> bool:
+    """Save alert report data. alerts = {generated_at, alerts: [...], summary: {...}}"""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(ALERTS_FILE, alerts)
+            print(f"[LOCAL] Saved alerts")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save alerts: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(ALERTS_FILE)
+
+    try:
+        json_data = json.dumps(alerts, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved alerts")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save alerts: {e}")
+        return False
+
+
+def load_alerts() -> Optional[dict]:
+    """Load alert report data."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(ALERTS_FILE)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    bucket = get_bucket()
+    blob = bucket.blob(ALERTS_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, dict) else None
+    except NotFound:
+        return None
+    except Exception as e:
+        print(f"[GCS] Failed to load alerts: {e}")
+        return None

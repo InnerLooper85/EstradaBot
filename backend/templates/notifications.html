@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}Notifications - EstradaBot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-bell"></i> Notifications</h2>
+    <button class="btn btn-outline-secondary btn-sm" onclick="markAllReadPage()">
+        <i class="bi bi-check-all"></i> Mark All Read
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>All Notifications</span>
+        <div>
+            <button class="btn btn-sm btn-outline-primary active" onclick="filterNotifs('all', this)">All</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="filterNotifs('unread', this)">Unread</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div id="notifPageList">
+            <div class="text-center text-muted py-5">Loading notifications...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let allNotifs = [];
+    let currentFilter = 'all';
+
+    function loadPageNotifications() {
+        fetch('/api/notifications')
+            .then(r => r.json())
+            .then(data => {
+                allNotifs = data.notifications || [];
+                renderNotifs();
+            });
+    }
+
+    function renderNotifs() {
+        const list = document.getElementById('notifPageList');
+        let filtered = currentFilter === 'unread'
+            ? allNotifs.filter(n => !n.is_read)
+            : allNotifs;
+
+        if (filtered.length === 0) {
+            list.innerHTML = `<div class="text-center text-muted py-5">
+                <i class="bi bi-bell-slash" style="font-size: 2rem;"></i><br>
+                ${currentFilter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+            </div>`;
+            return;
+        }
+
+        let html = '<div class="list-group list-group-flush">';
+        filtered.forEach(n => {
+            const ago = timeAgo(n.created_at);
+            const date = new Date(n.created_at).toLocaleString();
+            const readClass = n.is_read ? 'opacity-50' : '';
+            const bgClass = n.is_read ? '' : 'bg-light';
+            const typeIcon = {
+                'success': 'bi-check-circle-fill text-success',
+                'warning': 'bi-exclamation-triangle-fill text-warning',
+                'danger': 'bi-x-circle-fill text-danger',
+                'info': 'bi-info-circle-fill text-info'
+            }[n.type] || 'bi-bell text-secondary';
+
+            html += `<div class="list-group-item ${bgClass} ${readClass}">
+                <div class="d-flex align-items-start">
+                    <i class="bi ${typeIcon} me-3 mt-1" style="font-size: 1.2rem;"></i>
+                    <div class="flex-grow-1">
+                        <div>${n.is_read ? '' : '<strong>'} ${n.message} ${n.is_read ? '' : '</strong>'}</div>
+                        <small class="text-muted">${date} (${ago})</small>
+                    </div>
+                    ${!n.is_read ? `<button class="btn btn-sm btn-outline-secondary ms-2" onclick="markReadPage('${n.id}')">
+                        <i class="bi bi-check"></i>
+                    </button>` : ''}
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        list.innerHTML = html;
+    }
+
+    function filterNotifs(filter, btn) {
+        currentFilter = filter;
+        document.querySelectorAll('.card-header .btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        renderNotifs();
+    }
+
+    function markReadPage(id) {
+        fetch(`/api/notifications/${id}/read`, { method: 'POST' })
+            .then(() => {
+                loadPageNotifications();
+                loadNotifications(); // refresh navbar bell
+            });
+    }
+
+    function markAllReadPage() {
+        fetch('/api/notifications/read-all', { method: 'POST' })
+            .then(() => {
+                loadPageNotifications();
+                loadNotifications();
+            });
+    }
+
+    function timeAgo(isoStr) {
+        const now = new Date();
+        const then = new Date(isoStr);
+        const diff = Math.floor((now - then) / 1000);
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    loadPageNotifications();
+</script>
+{% endblock %}

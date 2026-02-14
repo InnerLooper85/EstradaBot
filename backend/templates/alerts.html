@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+
+{% block title %}Alerts - EstradaBot{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-bell-fill"></i> Alert Reports</h2>
+    <div>
+        <span class="text-muted small me-3" id="alertTimestamp"></span>
+        {% if can_generate %}
+        <button class="btn btn-primary btn-sm" onclick="refreshAlerts()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh Alerts
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mb-4" id="alertSummaryCards">
+    <div class="col-md-3">
+        <div class="card border-danger" id="cardLate" style="display: none;">
+            <div class="card-body text-center py-3">
+                <div class="stat-value status-late" style="font-size: 2rem;" id="lateCount">0</div>
+                <div class="stat-label"><i class="bi bi-x-circle text-danger"></i> Late Orders</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-warning" id="cardRisk" style="display: none;">
+            <div class="card-body text-center py-3">
+                <div class="stat-value status-at-risk" style="font-size: 2rem;" id="riskCount">0</div>
+                <div class="stat-label"><i class="bi bi-exclamation-triangle text-warning"></i> At Risk</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-info" id="cardCores" style="display: none;">
+            <div class="card-body text-center py-3">
+                <div class="stat-value" style="font-size: 2rem; color: #fd7e14;" id="coreCount">0</div>
+                <div class="stat-label"><i class="bi bi-box-seam text-warning"></i> Core Alerts</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card" id="cardTotal">
+            <div class="card-body text-center py-3">
+                <div class="stat-value" style="font-size: 2rem;" id="totalAlerts">0</div>
+                <div class="stat-label"><i class="bi bi-bell"></i> Total Alerts</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Detail Sections -->
+<div id="alertDetails">
+    <div class="text-center text-muted py-5" id="alertLoading">
+        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+        Loading alerts...
+    </div>
+    <div class="text-center text-muted py-5" id="noAlerts" style="display: none;">
+        <i class="bi bi-check-circle" style="font-size: 3rem; color: #28a745;"></i>
+        <h5 class="mt-3">All Clear</h5>
+        <p>No alerts detected. Schedule is looking good.</p>
+        {% if can_generate %}
+        <button class="btn btn-outline-primary" onclick="refreshAlerts()">
+            <i class="bi bi-arrow-clockwise"></i> Run Alert Check
+        </button>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function loadAlerts() {
+        fetch('/api/alerts')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('alertLoading').style.display = 'none';
+
+                if (!data.alerts || data.alerts.length === 0) {
+                    document.getElementById('noAlerts').style.display = 'block';
+                    return;
+                }
+                document.getElementById('noAlerts').style.display = 'none';
+
+                // Update timestamp
+                if (data.generated_at) {
+                    const d = new Date(data.generated_at);
+                    document.getElementById('alertTimestamp').textContent = 'Last updated: ' + d.toLocaleString();
+                }
+
+                // Update summary cards
+                const s = data.summary || {};
+                if (s.late_count > 0) {
+                    document.getElementById('lateCount').textContent = s.late_count;
+                    document.getElementById('cardLate').style.display = 'block';
+                }
+                if (s.at_risk_count > 0) {
+                    document.getElementById('riskCount').textContent = s.at_risk_count;
+                    document.getElementById('cardRisk').style.display = 'block';
+                }
+                if (s.core_alerts > 0) {
+                    document.getElementById('coreCount').textContent = s.core_alerts;
+                    document.getElementById('cardCores').style.display = 'block';
+                }
+                document.getElementById('totalAlerts').textContent = s.total_alerts || data.alerts.length;
+
+                // Render alert detail sections
+                let html = '';
+                data.alerts.forEach(alert => {
+                    const severityClass = {
+                        'danger': 'border-danger',
+                        'warning': 'border-warning',
+                        'info': 'border-info'
+                    }[alert.severity] || '';
+                    const iconClass = {
+                        'danger': 'bi-x-circle-fill text-danger',
+                        'warning': 'bi-exclamation-triangle-fill text-warning',
+                        'info': 'bi-info-circle-fill text-info'
+                    }[alert.severity] || 'bi-bell';
+                    const badgeClass = {
+                        'danger': 'bg-danger',
+                        'warning': 'bg-warning text-dark',
+                        'info': 'bg-info'
+                    }[alert.severity] || 'bg-secondary';
+
+                    html += `<div class="card mb-3 ${severityClass}">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi ${iconClass} me-2"></i> ${alert.title}</span>
+                            <span class="badge ${badgeClass}">${alert.count}</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2">${alert.message}</p>
+                            ${renderAlertDetails(alert)}
+                        </div>
+                    </div>`;
+                });
+                document.getElementById('alertDetails').innerHTML = html;
+            })
+            .catch(err => {
+                document.getElementById('alertLoading').style.display = 'none';
+                document.getElementById('noAlerts').style.display = 'block';
+            });
+    }
+
+    function renderAlertDetails(alert) {
+        if (!alert.details || alert.details.length === 0) return '';
+
+        if (alert.type === 'late_orders' || alert.type === 'promise_date_risk') {
+            let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th>WO#</th><th>Customer</th><th>Part Number</th><th>Promise Date</th><th>Completion</th>';
+            if (alert.type === 'late_orders') html += '<th>Days Late</th>';
+            if (alert.type === 'promise_date_risk') html += '<th>Buffer</th>';
+            html += '</tr></thead><tbody>';
+
+            alert.details.forEach(d => {
+                const promise = d.promise_date ? new Date(d.promise_date).toLocaleDateString() : '-';
+                const completion = d.completion_date ? new Date(d.completion_date).toLocaleDateString() : '-';
+                html += `<tr>
+                    <td><strong>${d.wo_number}</strong></td>
+                    <td>${d.customer || '-'}</td>
+                    <td>${d.part_number || '-'}</td>
+                    <td>${promise}</td>
+                    <td>${completion}</td>`;
+                if (alert.type === 'late_orders') {
+                    html += `<td class="text-danger">${d.days_late || '-'} days</td>`;
+                }
+                if (alert.type === 'promise_date_risk') {
+                    html += `<td class="text-warning">${d.buffer_days !== undefined ? d.buffer_days + ' days' : 'At Risk'}</td>`;
+                }
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        if (alert.type === 'core_shortage') {
+            let html = '<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Core</th><th>Orders Assigned</th></tr></thead><tbody>';
+            alert.details.forEach(d => {
+                html += `<tr><td>${d.core}</td><td>${d.order_count}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        if (alert.type === 'machine_utilization') {
+            let html = '<div class="row">';
+            alert.details.forEach(d => {
+                const barColor = d.pct > 30 ? (d.pct > 50 ? 'bg-danger' : 'bg-warning') : 'bg-success';
+                html += `<div class="col-md-2 mb-2">
+                    <div class="text-center">
+                        <strong>${d.machine}</strong>
+                        <div class="progress mt-1" style="height: 20px;">
+                            <div class="progress-bar ${barColor}" style="width: ${Math.max(d.pct, 5)}%;">${d.pct}%</div>
+                        </div>
+                        <small class="text-muted">${d.order_count} orders</small>
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        return '<pre class="small">' + JSON.stringify(alert.details, null, 2) + '</pre>';
+    }
+
+    function refreshAlerts() {
+        document.getElementById('alertDetails').innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-2">Generating alert report...</p>
+            </div>`;
+
+        fetch('/api/alerts/generate', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                }
+                loadAlerts();
+            })
+            .catch(err => alert('Error: ' + err.message));
+    }
+
+    loadAlerts();
+</script>
+{% endblock %}

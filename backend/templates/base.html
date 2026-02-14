@@ -187,6 +187,28 @@
                         </span>
                     </li>
                     {% if current_user.is_authenticated %}
+                    <!-- Notification Bell -->
+                    <li class="nav-item dropdown me-2">
+                        <a class="nav-link text-light position-relative" href="#" id="notifDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-bell" style="font-size: 1.1rem;"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" id="notifBadge" style="font-size: 0.6rem;">
+                                0
+                            </span>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end shadow" style="width: 360px; max-height: 400px; overflow-y: auto;" id="notifDropdownMenu">
+                            <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+                                <strong>Notifications</strong>
+                                <div>
+                                    <a href="#" class="text-decoration-none small" onclick="markAllRead(); return false;">Mark all read</a>
+                                    <span class="mx-1 text-muted">|</span>
+                                    <a href="/notifications" class="text-decoration-none small">View all</a>
+                                </div>
+                            </div>
+                            <div id="notifList">
+                                <div class="text-center text-muted py-3 small">Loading...</div>
+                            </div>
+                        </div>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle text-light" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle"></i> {{ current_user.username }}
@@ -228,6 +250,9 @@
                     </a>
                     <a class="nav-link {% if request.endpoint == 'mfg_eng_review_page' %}active{% endif %}" href="/mfg-eng-review">
                         <i class="bi bi-gear-wide-connected"></i> Mfg Eng Review
+                    </a>
+                    <a class="nav-link {% if request.endpoint == 'alerts_page' %}active{% endif %}" href="/alerts">
+                        <i class="bi bi-bell-fill"></i> Alerts
                     </a>
                     <hr class="mx-3">
                     {% if current_user.is_authenticated and current_user.role in ['admin', 'planner'] %}
@@ -348,6 +373,86 @@
             });
         }
     </script>
+
+    {% if current_user.is_authenticated %}
+    <script>
+        // Notification system
+        function loadNotifications() {
+            fetch('/api/notifications')
+                .then(r => r.json())
+                .then(data => {
+                    const badge = document.getElementById('notifBadge');
+                    const list = document.getElementById('notifList');
+                    if (!badge || !list) return;
+
+                    if (data.unread_count > 0) {
+                        badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+                        badge.classList.remove('d-none');
+                    } else {
+                        badge.classList.add('d-none');
+                    }
+
+                    if (!data.notifications || data.notifications.length === 0) {
+                        list.innerHTML = '<div class="text-center text-muted py-3 small">No notifications</div>';
+                        return;
+                    }
+
+                    let html = '';
+                    data.notifications.slice(0, 10).forEach(n => {
+                        const ago = timeAgo(n.created_at);
+                        const readClass = n.is_read ? 'opacity-50' : '';
+                        const dotClass = n.is_read ? '' : '<span class="text-primary me-1">&bull;</span>';
+                        const typeIcon = {
+                            'success': 'bi-check-circle-fill text-success',
+                            'warning': 'bi-exclamation-triangle-fill text-warning',
+                            'danger': 'bi-x-circle-fill text-danger',
+                            'info': 'bi-info-circle-fill text-info'
+                        }[n.type] || 'bi-bell text-secondary';
+
+                        html += `<a href="#" class="dropdown-item py-2 ${readClass}" style="white-space: normal;"
+                                    onclick="markRead('${n.id}', this); return false;">
+                            <div class="d-flex align-items-start">
+                                <i class="bi ${typeIcon} me-2 mt-1" style="font-size: 0.9rem;"></i>
+                                <div class="flex-grow-1">
+                                    <div class="small">${dotClass}${n.message}</div>
+                                    <div class="text-muted" style="font-size: 0.7rem;">${ago}</div>
+                                </div>
+                            </div>
+                        </a>`;
+                    });
+                    list.innerHTML = html;
+                })
+                .catch(() => {});
+        }
+
+        function markRead(id, el) {
+            fetch(`/api/notifications/${id}/read`, { method: 'POST' })
+                .then(() => {
+                    if (el) el.classList.add('opacity-50');
+                    loadNotifications();
+                });
+        }
+
+        function markAllRead() {
+            fetch('/api/notifications/read-all', { method: 'POST' })
+                .then(() => loadNotifications());
+        }
+
+        function timeAgo(isoStr) {
+            const now = new Date();
+            const then = new Date(isoStr);
+            const diff = Math.floor((now - then) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        // Load on page load and poll every 60 seconds
+        loadNotifications();
+        setInterval(loadNotifications, 60000);
+    </script>
+    {% endif %}
 
     {% block extra_js %}{% endblock %}
 </body>

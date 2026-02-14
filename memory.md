@@ -1,7 +1,8 @@
 # EstradaBot — Session Memory
 
-**Last updated:** February 13, 2026
-**Current deployed version:** MVP 1.3 (revision estradabot-00016-tw2)
+**Last updated:** February 14, 2026
+**Current deployed version:** MVP 1.6 (on master)
+**Working branch version:** MVP 1.7+ (on claude/review-estradabot-build-plan-QZj5H)
 
 ---
 
@@ -47,13 +48,12 @@ Full protocol is defined in `CLAUDE.md` under "Melt Banana Protocol (MBP)". Summ
 
 ### Known Quirks / Tech Debt
 - **Role name inconsistency**: Code accepts both `customer_service` and `customerservice`. Should be normalized.
-- **Role case sensitivity BUG (FIXED in MVP 1.7)**: Roles from USERS env var were case-sensitive — `Planner` ≠ `planner`. Fixed by normalizing to lowercase on load.
-- **File name detection (FIXED in MVP 1.7)**: Files named `OSO_*.xlsx` and `SDR_*.xlsx` not recognized. Fixed to accept these patterns.
+- **Role case sensitivity BUG (FIXED)**: Roles from USERS env var were case-sensitive — `Planner` ≠ `planner`. Fixed by normalizing to lowercase on load.
+- **File name detection (FIXED)**: Files named `OSO_*.xlsx` and `SDR_*.xlsx` not recognized. Fixed to accept these patterns.
+- **DCP Report parser (BUILT)**: Parses DCPReport Excel files for WO-level special instructions and supermarket locations.
 - **Planner workflow not battle-tested**: 3-scenario simulation, special request queue, and publish flow are built but haven't been tested with real production data.
-- **No automated tests**: Manual testing only. Unit/integration tests on MVP 1.x backlog.
 - **`implementation_plan.md` is outdated**: References React/Node.js stack from original plan. Actual stack is Python/Flask.
 - **Global state in app.py**: `planner_state` and `published_schedule` are module-level dicts. Fine for single-instance Cloud Run.
-- **DCPReport integration needed**: DCPReport_34.xlsx uploaded as feedback — contains WO-level special instructions. Need to examine file structure and build parser to populate the new `special_instructions` field.
 
 ---
 
@@ -343,10 +343,33 @@ To pull user feedback from the live site into a Claude Code session:
 5. **Simulation defaults to published schedule** — No longer require fresh generate each time. **BUILT** — simulation data saved to GCS on generate, served from persisted data when no in-memory objects.
 6. **Order Hold status** — Flag orders as "on hold" to exclude from scheduling. Persists across uploads/simulations until removed. **BUILT** — separate holds system with API endpoints, UI on Special Requests page, scheduler exclusion logic.
 
-### Open Items from Feedback
-- Need to examine DCPReport_34.xlsx structure to build parser for `special_instructions` field
-- Need to examine Capture.PNG and image.png screenshots (couldn't download from sandbox)
-- MfgEng user submitted bug reports saying they're "logged in as planner" — may be a role configuration issue in the USERS env var, not a code bug
+### Status: All 6 items COMPLETE. Deployed as part of MVP 1.7 branch.
+
+### Open Items from Feedback (Feb 13)
+- ~~DCPReport parser~~ — **BUILT** (Feb 14 session). Parses special instructions + supermarket locations.
+- ~~Capture.PNG error~~ — **Confirmed FIXED** by Sean. Was file detection bug.
+- MfgEng user role confusion — **Confirmed FIXED** by role case-sensitivity fix. May still need Sean to verify USERS env var entries.
+
+---
+
+## Session — February 14, 2026
+
+### Decisions Made
+
+1. **Feedback status tracking** — Add Status column to admin feedback table. Statuses: New, In-Work, Fixed, Resolved w/o Action. Backend API to update. New feedback defaults to "New."
+2. **Capture.PNG error** — Confirmed fixed by Sean. No further action.
+3. **Mode B reconciliation** — Sean asked for explanation. Deferred pending his decision on auto-apply vs flag-for-review behavior.
+4. **Notification bell system** — In-app bell icon with unread badge count, top-right navbar next to user login info. Dropdown shows recent notifications. Also viewable on a dedicated page. Auto-mark-as-read after 1 week.
+5. **Alert Reports** — All 4 types: Promise Date Risk, Core Shortage, Machine Utilization, Late Order Summary. Display: dashboard cards + dedicated Alerts page. Timing: auto-generate on schedule publish + on-demand refresh button.
+6. **Automated tests** — Starting with pytest framework, DES engine tests, API endpoint tests, parser tests.
+
+### Items Being Built (Feb 14)
+- [ ] Feedback status column + API
+- [ ] Notification bell system (storage, API, navbar bell, dropdown, auto-read expiry)
+- [ ] Alert reports engine (4 alert types)
+- [ ] Alert dashboard cards on main dashboard
+- [ ] Dedicated Alerts page with filtering/history
+- [ ] Pytest framework + core test suites
 
 ---
 

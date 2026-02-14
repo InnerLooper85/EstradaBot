@@ -8,6 +8,8 @@ import sys
 from datetime import datetime
 from functools import wraps
 
+import json
+
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, flash, session
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -325,12 +327,19 @@ def index():
     files = get_uploaded_files()
     reports = get_available_reports()
 
+    # Load alert summary for dashboard cards
+    alerts_data = gcs_storage.load_alerts()
+    alert_summary = alerts_data.get('summary', {}) if alerts_data else {}
+    alert_generated_at = alerts_data.get('generated_at') if alerts_data else None
+
     can_generate = current_user.role in ('admin', 'planner')
     return render_template('index.html',
                            files=files,
                            reports=reports[:5],
                            schedule=current_schedule,
-                           can_generate=can_generate)
+                           can_generate=can_generate,
+                           alert_summary=alert_summary,
+                           alert_generated_at=alert_generated_at)
 
 
 @app.route('/upload')
@@ -1050,6 +1059,7 @@ def submit_feedback():
         'page': page,
         'message': message,
         'submitted_at': datetime.now().isoformat(),
+        'status': 'New',
         'attachment': None
     }
 
@@ -1168,6 +1178,48 @@ def download_feedback_file(filename):
     if temp_path:
         return send_file(temp_path, as_attachment=True, download_name=safe_filename)
     return jsonify({'error': 'File not found'}), 404
+
+
+@app.route('/api/feedback/<int:index>/status', methods=['PUT'])
+@login_required
+def update_feedback_status(index):
+    """Update the status of a feedback entry (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    new_status = data.get('status', '').strip() if data else ''
+
+    valid_statuses = ['New', 'In-Work', 'Fixed', 'Resolved w/o Action']
+    if new_status not in valid_statuses:
+        return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
+
+    try:
+        feedback = gcs_storage.load_feedback()
+        # Index is newest-first from the frontend, so reverse to match storage order
+        reversed_idx = len(feedback) - 1 - index
+        if reversed_idx < 0 or reversed_idx >= len(feedback):
+            return jsonify({'error': 'Feedback entry not found'}), 404
+
+        feedback[reversed_idx]['status'] = new_status
+        feedback[reversed_idx]['status_updated_by'] = current_user.username
+        feedback[reversed_idx]['status_updated_at'] = datetime.now().isoformat()
+
+        # Save the full list back (overwrite)
+        if gcs_storage.USE_LOCAL_STORAGE:
+            gcs_storage._local_save_json(gcs_storage.FEEDBACK_FILE, feedback)
+        else:
+            bucket = gcs_storage.get_bucket()
+            blob = bucket.blob(gcs_storage.FEEDBACK_FILE)
+            blob.upload_from_string(
+                json.dumps(feedback, default=str),
+                content_type='application/json'
+            )
+
+        return jsonify({'success': True, 'status': new_status})
+    except Exception as e:
+        print(f"[ERROR] Failed to update feedback status: {e}")
+        return jsonify({'error': 'Failed to update status'}), 500
 
 
 @app.route('/api/simulation-data')
@@ -2154,6 +2206,22 @@ def publish_schedule():
             req['published_at'] = now.isoformat()
     gcs_storage.save_special_requests(all_requests)
 
+    # Auto-generate alerts on publish
+    try:
+        alerts_data = generate_alert_report(final['serialized_orders'])
+        gcs_storage.save_alerts(alerts_data)
+        print(f"[Publish] Generated alerts: {alerts_data['summary']}")
+    except Exception as e:
+        print(f"[Publish] Alert generation failed (non-blocking): {e}")
+
+    # Create notification for schedule publish
+    create_notification(
+        'success',
+        f'Schedule published by {current_user.username} ({final["scenario_label"]})',
+        target_roles=None,
+        related_entity={'type': 'schedule', 'value': now.isoformat()}
+    )
+
     return jsonify({
         'success': True,
         'published_at': now.isoformat(),
@@ -2213,6 +2281,354 @@ def server_error(e):
     if request.path.startswith('/api/'):
         return jsonify({'error': 'Internal server error'}), 500
     return render_template('500.html'), 500
+
+
+# ============== Notifications ==============
+
+
+def create_notification(notif_type, message, target_roles=None, related_entity=None):
+    """Create a notification and persist it.
+
+    Args:
+        notif_type: 'info', 'warning', 'success', 'danger'
+        message: Short notification text
+        target_roles: List of roles to show this to, or None for all
+        related_entity: Optional dict like {'type': 'schedule', 'value': '...'}
+    """
+    notifications = gcs_storage.load_notifications()
+
+    notif = {
+        'id': f"NTF-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(notifications)}",
+        'type': notif_type,
+        'message': message,
+        'target_roles': target_roles,
+        'created_at': datetime.now().isoformat(),
+        'read_by': [],
+        'related_entity': related_entity,
+    }
+
+    notifications.append(notif)
+    gcs_storage.save_notifications(notifications)
+    return notif
+
+
+@app.route('/api/notifications')
+@login_required
+def get_notifications():
+    """Get notifications for the current user. Auto-marks old ones as read."""
+    notifications = gcs_storage.load_notifications()
+    now = datetime.now()
+    changed = False
+
+    user_notifs = []
+    for n in notifications:
+        # Filter by target role
+        targets = n.get('target_roles')
+        if targets and current_user.role not in targets:
+            continue
+
+        # Auto-mark as read after 7 days
+        created = datetime.fromisoformat(n['created_at'])
+        if (now - created).days >= 7 and current_user.username not in n.get('read_by', []):
+            n.setdefault('read_by', []).append(current_user.username)
+            changed = True
+
+        is_read = current_user.username in n.get('read_by', [])
+        user_notifs.append({
+            'id': n['id'],
+            'type': n['type'],
+            'message': n['message'],
+            'created_at': n['created_at'],
+            'is_read': is_read,
+            'related_entity': n.get('related_entity'),
+        })
+
+    if changed:
+        gcs_storage.save_notifications(notifications)
+
+    # Newest first, limit to 50
+    user_notifs.reverse()
+    unread_count = sum(1 for n in user_notifs if not n['is_read'])
+
+    return jsonify({
+        'notifications': user_notifs[:50],
+        'unread_count': unread_count
+    })
+
+
+@app.route('/api/notifications/<notif_id>/read', methods=['POST'])
+@login_required
+def mark_notification_read(notif_id):
+    """Mark a single notification as read."""
+    notifications = gcs_storage.load_notifications()
+    for n in notifications:
+        if n['id'] == notif_id:
+            if current_user.username not in n.get('read_by', []):
+                n.setdefault('read_by', []).append(current_user.username)
+                gcs_storage.save_notifications(notifications)
+            return jsonify({'success': True})
+    return jsonify({'error': 'Notification not found'}), 404
+
+
+@app.route('/api/notifications/read-all', methods=['POST'])
+@login_required
+def mark_all_notifications_read():
+    """Mark all notifications as read for current user."""
+    notifications = gcs_storage.load_notifications()
+    changed = False
+    for n in notifications:
+        targets = n.get('target_roles')
+        if targets and current_user.role not in targets:
+            continue
+        if current_user.username not in n.get('read_by', []):
+            n.setdefault('read_by', []).append(current_user.username)
+            changed = True
+    if changed:
+        gcs_storage.save_notifications(notifications)
+    return jsonify({'success': True})
+
+
+@app.route('/notifications')
+@login_required
+def notifications_page():
+    """Notifications page — full list with filtering."""
+    return render_template('notifications.html')
+
+
+# ============== Alert Reports ==============
+
+
+def generate_alert_report(orders_data):
+    """Generate alert report from serialized order data.
+
+    Analyzes orders for: late orders, promise date risk, core shortage, machine utilization.
+
+    Args:
+        orders_data: List of serialized order dicts (from schedule state)
+
+    Returns:
+        Dict with alerts list and summary counts
+    """
+    now = datetime.now()
+    alerts = []
+    late_orders = []
+    at_risk_orders = []
+    core_usage = {}  # core_number -> count
+    machine_usage = {}  # desma -> count
+
+    AT_RISK_DAYS = 3  # Orders within 3 days of promise date
+    MACHINE_OVERLOAD_PCT = 90
+    MACHINE_UNDERLOAD_PCT = 40
+    TOTAL_MACHINES = 5  # D1-D5
+
+    for order in orders_data:
+        wo = order.get('wo_number', '')
+
+        # --- Late Order Summary ---
+        if order.get('on_time_status') == 'Late':
+            promise = order.get('promise_date', '')
+            completion = order.get('completion_date', '')
+            days_late = ''
+            if promise and completion:
+                try:
+                    p = datetime.fromisoformat(promise)
+                    c = datetime.fromisoformat(completion)
+                    days_late = (c - p).days
+                except (ValueError, TypeError):
+                    pass
+            late_orders.append({
+                'wo_number': wo,
+                'customer': order.get('customer', ''),
+                'part_number': order.get('part_number', ''),
+                'promise_date': promise,
+                'completion_date': completion,
+                'days_late': days_late,
+            })
+
+        # --- Promise Date Risk ---
+        elif order.get('on_time_status') == 'At Risk':
+            at_risk_orders.append({
+                'wo_number': wo,
+                'customer': order.get('customer', ''),
+                'part_number': order.get('part_number', ''),
+                'promise_date': order.get('promise_date', ''),
+                'completion_date': order.get('completion_date', ''),
+            })
+        elif order.get('on_time_status') == 'On Time' and order.get('promise_date') and order.get('completion_date'):
+            try:
+                promise = datetime.fromisoformat(order['promise_date'])
+                completion = datetime.fromisoformat(order['completion_date'])
+                buffer_days = (promise - completion).days
+                if 0 < buffer_days <= AT_RISK_DAYS:
+                    at_risk_orders.append({
+                        'wo_number': wo,
+                        'customer': order.get('customer', ''),
+                        'part_number': order.get('part_number', ''),
+                        'promise_date': order['promise_date'],
+                        'completion_date': order['completion_date'],
+                        'buffer_days': buffer_days,
+                    })
+            except (ValueError, TypeError):
+                pass
+
+        # --- Core Shortage tracking ---
+        core = order.get('core', '')
+        if core:
+            core_num = core.split('-')[0] if '-' in core else core
+            core_usage[core_num] = core_usage.get(core_num, 0) + 1
+
+        # --- Machine utilization tracking ---
+        # We track from operations if available, otherwise from serialized data
+        desma = order.get('planned_desma', '')
+        if desma:
+            machine_usage[desma] = machine_usage.get(desma, 0) + 1
+
+    # Build alerts list
+    if late_orders:
+        alerts.append({
+            'type': 'late_orders',
+            'severity': 'danger',
+            'title': 'Late Orders',
+            'count': len(late_orders),
+            'message': f'{len(late_orders)} order(s) past their promise date',
+            'details': late_orders,
+        })
+
+    if at_risk_orders:
+        alerts.append({
+            'type': 'promise_date_risk',
+            'severity': 'warning',
+            'title': 'Promise Date Risk',
+            'count': len(at_risk_orders),
+            'message': f'{len(at_risk_orders)} order(s) at risk of missing promise date',
+            'details': at_risk_orders,
+        })
+
+    # Core shortage: cores used by 3+ orders concurrently may indicate shortage
+    overloaded_cores = {k: v for k, v in core_usage.items() if v >= 3}
+    if overloaded_cores:
+        alerts.append({
+            'type': 'core_shortage',
+            'severity': 'warning',
+            'title': 'Core Utilization',
+            'count': len(overloaded_cores),
+            'message': f'{len(overloaded_cores)} core(s) assigned to 3+ orders',
+            'details': [{'core': k, 'order_count': v} for k, v in sorted(overloaded_cores.items(), key=lambda x: -x[1])],
+        })
+
+    # Machine utilization
+    total_orders = len(orders_data)
+    if total_orders > 0 and machine_usage:
+        avg_per_machine = total_orders / TOTAL_MACHINES
+        overloaded = []
+        underloaded = []
+        for m in [f'D{i}' for i in range(1, TOTAL_MACHINES + 1)]:
+            count = machine_usage.get(m, 0)
+            pct = (count / total_orders * 100) if total_orders else 0
+            if pct > MACHINE_OVERLOAD_PCT / TOTAL_MACHINES * 100:
+                overloaded.append({'machine': m, 'order_count': count, 'pct': round(pct, 1)})
+            elif count == 0 and total_orders > 0:
+                underloaded.append({'machine': m, 'order_count': 0, 'pct': 0})
+
+        machine_details = []
+        for m in [f'D{i}' for i in range(1, TOTAL_MACHINES + 1)]:
+            count = machine_usage.get(m, 0)
+            pct = round(count / total_orders * 100, 1) if total_orders else 0
+            machine_details.append({'machine': m, 'order_count': count, 'pct': pct})
+
+        max_pct = max(d['pct'] for d in machine_details) if machine_details else 0
+        min_pct = min(d['pct'] for d in machine_details) if machine_details else 0
+        imbalance = max_pct - min_pct
+
+        severity = 'info'
+        if imbalance > 30:
+            severity = 'warning'
+        if imbalance > 50:
+            severity = 'danger'
+
+        alerts.append({
+            'type': 'machine_utilization',
+            'severity': severity,
+            'title': 'Machine Utilization',
+            'count': TOTAL_MACHINES,
+            'message': f'Utilization spread: {min_pct}% - {max_pct}% across {TOTAL_MACHINES} machines',
+            'details': machine_details,
+        })
+
+    summary = {
+        'late_count': len(late_orders),
+        'at_risk_count': len(at_risk_orders),
+        'core_alerts': len(overloaded_cores) if 'overloaded_cores' in dir() else 0,
+        'total_alerts': len(alerts),
+    }
+
+    return {
+        'generated_at': now.isoformat(),
+        'alerts': alerts,
+        'summary': summary,
+    }
+
+
+@app.route('/api/alerts')
+@login_required
+def get_alerts():
+    """Get current alert report."""
+    alerts_data = gcs_storage.load_alerts()
+    if not alerts_data:
+        return jsonify({'alerts': [], 'summary': {'total_alerts': 0}, 'generated_at': None})
+    return jsonify(alerts_data)
+
+
+@app.route('/api/alerts/generate', methods=['POST'])
+@login_required
+def generate_alerts():
+    """On-demand alert generation from current schedule data."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    # Get orders from published schedule or current schedule
+    orders_data = []
+    pub = gcs_storage.load_published_schedule()
+    if pub and pub.get('orders'):
+        orders_data = pub['orders']
+    elif current_schedule.get('serialized_orders'):
+        orders_data = current_schedule['serialized_orders']
+    else:
+        state = gcs_storage.load_schedule_state()
+        if state and state.get('orders'):
+            orders_data = state['orders']
+
+    if not orders_data:
+        return jsonify({'error': 'No schedule data available. Generate a schedule first.'}), 400
+
+    alerts_data = generate_alert_report(orders_data)
+    gcs_storage.save_alerts(alerts_data)
+
+    # Create notification if there are new critical alerts
+    late_count = alerts_data['summary'].get('late_count', 0)
+    risk_count = alerts_data['summary'].get('at_risk_count', 0)
+    if late_count > 0 or risk_count > 0:
+        msg_parts = []
+        if late_count:
+            msg_parts.append(f'{late_count} late')
+        if risk_count:
+            msg_parts.append(f'{risk_count} at-risk')
+        create_notification(
+            'warning',
+            f'Alert Report: {", ".join(msg_parts)} orders detected',
+            target_roles=None,
+            related_entity={'type': 'alert_report', 'value': alerts_data['generated_at']}
+        )
+
+    return jsonify(alerts_data)
+
+
+@app.route('/alerts')
+@login_required
+def alerts_page():
+    """Dedicated alerts page with full details and filtering."""
+    can_generate = current_user.role in ('admin', 'planner')
+    return render_template('alerts.html', can_generate=can_generate)
 
 
 # ============== Main ==============
