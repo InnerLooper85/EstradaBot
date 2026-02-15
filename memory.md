@@ -92,6 +92,38 @@ Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
 
 ---
 
+## MBP Session — Feb 15, 2026 (Roadmap Replanning)
+
+**Status:** COLLECTING
+
+**Context:** Reviewing and replanning the project roadmap. Several items moved from MVP 2.0 to MVP 1.x during interactive walkthrough. MBP initiated to collect additional requirements.
+
+### Decisions Made Before MBP (interactive walkthrough)
+
+- Resource utilization report → MVP 1.8
+- Role name normalization → next 1.x release
+- Rubber grouping optimization → stays MVP 1.x backlog (LOW)
+- Tests & alert reports → already done in 1.7, doc cleanup needed
+- Extended simulation options (6-day, skeleton shifts) → moved to 1.x
+  - Skeleton shifts = takt time adjustment (all machines available, fewer staff = longer takt)
+  - User enters expected takt time for skeleton
+  - Day shift, night shift, or both — user picks
+  - Any day configurable as full or skeleton
+  - 6th day (Saturday) — user chooses full or skeleton
+- RBAC / user management → moved to 1.x (role matrix deferred)
+- Core Mapping: read-only web view in 1.x, editable database in 2.0 (DB tech deferred)
+- Days Idle column → moved to 1.x
+  - Data source: "Elapsed Days" column in Shop Dispatch report (already uploaded)
+  - Rule: 9999 → 0 (just-released orders); otherwise display as-is
+- Basic schedule reorder → 1.x
+- Full schedule manipulation GUI (drag-drop + resource reassignment) → MVP 2.0
+
+### MBP Items
+
+1. **MVP 2.0 = Rotors product line.** Add a second department (Rotors) with its own staffing, machines, and scheduling logic. Separate department but shared UI framework and feature set. This redefines the entire MVP 2.0 scope.
+
+---
+
 ## Session Tips
 
 - Always run session startup check per CLAUDE.md
