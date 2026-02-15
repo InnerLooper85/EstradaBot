@@ -2,6 +2,7 @@
 
 **Last updated:** February 15, 2026
 **Current deployed version:** MVP 1.8.2 (on master)
+**Pending on branch:** MVP 1.9.0 on `claude/prepare-mvp-1.9-pgt1o` (ready for merge)
 
 ---
 
@@ -19,11 +20,13 @@
 
 ---
 
-## Current State of the App (MVP 1.7)
+## Current State of the App (MVP 1.9.0 pending)
 
 - Full DES scheduling engine with 5-tier priority system
 - Web app: Dashboard, Upload, Schedule, Reports, Simulation, Planner Workflow, Update Log
-- 4/5-day schedule toggle, 3-scenario planner comparison (4d/10h, 4d/12h, 5d/12h)
+- **4 standard scenario presets** (4d/10h, 4d/12h, 5d/12h, 6d/12h) + **Custom Configuration**
+- Per-day shift config: full/skeleton mode, day/night/both shifts, per-day takt (1-120 min)
+- DayShiftConfig dataclass + WorkScheduleConfig.day_configs for advanced scheduling
 - Special Requests page with Mode A/B, impact preview, approval queue
 - Order Holds system, Special Instructions column (from DCP Report)
 - Notification bell, Alert reports (4 types), Feedback status tracking
@@ -88,7 +91,7 @@
 - **12-hour**: Day 5AM-5PM, Night 5PM-5AM. Breaks at 9:00 (15m), 11:00 (45m), 21:00 (15m), 23:00 (45m). 30-min handover.
 - **10-hour**: Day only 5AM-3PM. Breaks at 9:00 (15m), 11:00 (45m). 30-min handover.
 
-Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
+Scenario configs: `4day_10h`, `4day_12h`, `5day_12h`, `6day_12h` in `app.py` + `custom` via `/api/planner/simulate-custom-scenario`.
 
 ---
 
@@ -99,7 +102,7 @@ Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
 ### MVP 1.x Release Plan (agreed Feb 15)
 
 - **1.8:** Role name normalization, resource utilization report, Days Idle column
-- **1.9:** Extended simulation (6-day weeks, skeleton shifts)
+- **1.9:** Extended simulation (6-day weeks, skeleton shifts) — **DONE**, pending merge
 - **1.10:** RBAC / user management, Core Mapping read-only view, basic schedule reorder
 - **Ongoing:** Automated tests (with each release), rubber grouping (when convenient)
 
