@@ -229,6 +229,7 @@ class ScheduledOrder:
     serial_number: str = None  # From Sales Order report
     special_instructions: str = None  # From redline requests
     supermarket_location: str = None  # From DCP report
+    days_idle: int = None  # From Shop Dispatch "Elapsed Days" (9999→0)
 
 
 @dataclass

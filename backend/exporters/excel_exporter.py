@@ -43,6 +43,7 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
             'Basic Finish Date': getattr(order, 'basic_finish_date', None),
             'Promise Date': order.promise_date,
             'On-Time': 'Yes' if order.on_time else 'No',
+            'Days Idle': getattr(order, 'days_idle', None) if getattr(order, 'days_idle', None) is not None else '',
             'Special Instructions': getattr(order, 'special_instructions', '') or ''
         })
 
