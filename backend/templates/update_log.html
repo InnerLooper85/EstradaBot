@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.7</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.8</span>
 </div>
 
 <!-- Feedback Form -->
@@ -97,6 +97,28 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.8 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.8</span>
+                <small class="text-muted ms-2">February 2026 - Quick Wins &amp; Reporting</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Role Name Normalization:</strong> Standardized <code>customer_service</code> role name across the codebase, eliminating the inconsistency between <code>customer_service</code> and <code>customerservice</code> variants. Tech debt cleanup ahead of RBAC work in MVP 1.10.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Days Idle Column:</strong> Added "Days Idle" column to the Master Schedule export. Sourced from Shop Dispatch "Elapsed Days" field with automatic 9999 &rarr; 0 conversion. Helps identify orders sitting idle in work-in-process.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Resource Utilization Report:</strong> New Excel export with per-station and per-injection-machine utilization metrics. Includes processing hours, idle hours, setup/changeover hours, and utilization percentage. Available on the Reports page.
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.7 -->
         <div class="mb-4">
             <h5>

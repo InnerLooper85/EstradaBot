@@ -562,6 +562,9 @@ class PartState:
     # Planned resources
     planned_desma: Optional[str] = None  # Which Desma machine is assigned
 
+    # Days idle (from Shop Dispatch "Elapsed Days")
+    days_idle: Optional[int] = None
+
     # Priority tier
     priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
 
@@ -1084,7 +1087,8 @@ class DESScheduler:
                     serial_number=order.get('serial_number'),
                     priority=order.get('priority', 'Normal'),
                     special_instructions=order.get('special_instructions'),
-                    supermarket_location=order.get('supermarket_location')
+                    supermarket_location=order.get('supermarket_location'),
+                    days_idle=order.get('days_idle')
                 )
 
                 self.parts[part_id] = part_state
@@ -1382,7 +1386,8 @@ class DESScheduler:
                 priority=part.priority,
                 serial_number=part.serial_number,
                 special_instructions=part.special_instructions,
-                supermarket_location=part.supermarket_location
+                supermarket_location=part.supermarket_location,
+                days_idle=part.days_idle
             )
 
             self.scheduled_orders.append(scheduled)

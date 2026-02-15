@@ -47,9 +47,9 @@ Agreed Feb 15, 2026. Items moved from old MVP 2.0 plan, split into 3 focused rel
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Role name normalization | Not started | Fix `customer_service` vs `customerservice` — tech debt cleanup before RBAC |
-| Resource utilization report | Not started | Per-operation/machine utilization metrics |
-| Days Idle column | Not started | From Shop Dispatch "Elapsed Days"; 9999→0 rule |
+| Role name normalization | Complete | Fix `customer_service` vs `customerservice` — tech debt cleanup before RBAC |
+| Resource utilization report | Complete | Per-station/machine utilization Excel export with two sheets |
+| Days Idle column | Complete | From Shop Dispatch "Elapsed Days"; 9999→0 rule, added to Master Schedule export |
 
 ### MVP 1.9 — Simulation power
 

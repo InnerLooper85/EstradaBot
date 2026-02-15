@@ -32,6 +32,7 @@ from exporters.excel_exporter import (
     export_pending_core_report
 )
 from exporters.impact_analysis_exporter import generate_impact_analysis
+from exporters.resource_utilization_exporter import export_resource_utilization
 import gcs_storage
 
 
@@ -107,7 +108,7 @@ def load_users():
 
     # Load additional users from USERS env var
     # Format: username1:password1:role1,username2:password2:role2
-    # Role is optional, defaults to 'user'. Valid roles: planner, mfgeng, customerservice, guest
+    # Role is optional, defaults to 'user'. Valid roles: planner, mfgeng, customer_service, guest
     users_env = os.environ.get('USERS', '')
     if users_env:
         for user_pair in users_env.split(','):
@@ -268,6 +269,8 @@ def get_available_reports():
             report_type = 'Pending Core Report'
         elif 'Impact_Analysis' in filename:
             report_type = 'Impact Analysis'
+        elif 'Resource_Utilization' in filename:
+            report_type = 'Resource Utilization'
 
         reports.append({
             'filename': filename,
@@ -672,6 +675,12 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
     export_pending_core_report(pending_orders, pending_path)
     gcs_storage.upload_file(pending_path, pending_filename, gcs_storage.OUTPUTS_FOLDER)
     reports['pending'] = pending_filename
+
+    utilization_filename = f'Resource_Utilization_{mode_label}_{timestamp}.xlsx'
+    utilization_path = os.path.join(temp_dir, utilization_filename)
+    export_resource_utilization(scheduled_orders, utilization_path)
+    gcs_storage.upload_file(utilization_path, utilization_filename, gcs_storage.OUTPUTS_FOLDER)
+    reports['utilization'] = utilization_filename
 
     # Impact analysis if hot list was used
     if loader.hot_list_entries:
@@ -1589,7 +1598,7 @@ def create_special_request():
     Submit a new special request (hot list entry from the app).
     Available to customer_service, planner, admin roles.
     """
-    allowed_roles = ('admin', 'planner', 'customer_service', 'customerservice')
+    allowed_roles = ('admin', 'planner', 'customer_service')
     if current_user.role not in allowed_roles:
         return jsonify({'error': 'Your role cannot submit special requests.'}), 403
 
@@ -2103,6 +2112,12 @@ def generate_final_schedule():
         export_blast_schedule(final_orders, blast_path)
         gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
         reports['blast'] = blast_filename
+
+        utilization_filename = f'Resource_Utilization_{mode_label}_{timestamp}.xlsx'
+        utilization_path = os.path.join(temp_dir, utilization_filename)
+        export_resource_utilization(final_orders, utilization_path)
+        gcs_storage.upload_file(utilization_path, utilization_filename, gcs_storage.OUTPUTS_FOLDER)
+        reports['utilization'] = utilization_filename
 
         # Impact analysis
         if combined_hot_list:

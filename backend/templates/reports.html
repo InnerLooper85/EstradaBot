@@ -52,6 +52,14 @@
             </div>
         </div>
     </div>
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-bar-chart-line text-secondary"></i> Resource Utilization</h5>
+                <p class="card-text text-muted small">Per-station and per-machine utilization metrics. Shows processing hours, idle time, and utilization percentage.</p>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Available Reports Table -->
@@ -88,6 +96,8 @@
                             <i class="bi bi-hourglass-split text-info"></i>
                         {% elif report.type == 'Impact Analysis' %}
                             <i class="bi bi-graph-up text-success"></i>
+                        {% elif report.type == 'Resource Utilization' %}
+                            <i class="bi bi-bar-chart-line text-secondary"></i>
                         {% else %}
                             <i class="bi bi-file-earmark-excel text-secondary"></i>
                         {% endif %}
@@ -126,7 +136,7 @@
     </div>
     <div class="card-body">
         <div class="row">
-            {% set report_types = ['Master Schedule', 'BLAST Schedule', 'Core Oven Schedule', 'Pending Core Report', 'Impact Analysis'] %}
+            {% set report_types = ['Master Schedule', 'BLAST Schedule', 'Core Oven Schedule', 'Pending Core Report', 'Impact Analysis', 'Resource Utilization'] %}
             {% for type in report_types %}
                 {% set latest = reports|selectattr('type', 'equalto', type)|first %}
                 <div class="col-md-4 mb-2">

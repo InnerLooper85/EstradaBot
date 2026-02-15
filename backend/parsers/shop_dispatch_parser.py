@@ -104,7 +104,8 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
                     'remaining_work_centers': row.get('Remaining Work Centers') if pd.notna(row.get('Remaining Work Centers')) else None,
                     'operation_quantity': row.get('Operation Quantity') if pd.notna(row.get('Operation Quantity')) else None,
                     'priority': row.get('Priority') if pd.notna(row.get('Priority')) else None,
-                    'elapsed_days': row.get('Elapsed Days') if pd.notna(row.get('Elapsed Days')) else None,
+                    'days_idle': 0 if (pd.notna(row.get('Elapsed Days')) and row.get('Elapsed Days') == 9999)
+                                  else (int(row.get('Elapsed Days')) if pd.notna(row.get('Elapsed Days')) else None),
                     'source': 'Shop Dispatch',
                     'is_rework': is_rework,
                     'rework_lead_time_hours': rework_lead_time_hours
