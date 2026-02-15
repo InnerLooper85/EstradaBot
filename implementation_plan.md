@@ -55,7 +55,18 @@ Agreed Feb 15, 2026. Items moved from old MVP 2.0 plan, split into 3 focused rel
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Extended simulation (6-day, skeleton shifts) | Not started | Skeleton = takt time adjustment (all machines, fewer staff = longer takt). User configures per-day: full or skeleton, day/night/both. Saturday as optional 6th day. |
+| Extended simulation (6-day, skeleton shifts) | In progress | See design decisions below |
+
+**MVP 1.9 Design Decisions (deglazed Feb 15, 2026):**
+- Skeleton = takt time adjustment (all machines available, fewer staff = longer takt). User enters takt in minutes.
+- Per-day config: Mon–Sat grid. Each day: working yes/no, full/skeleton, day/night/both shift selection.
+- Add `6day_12h` as 4th standard preset scenario.
+- Advanced Configuration panel in planner workflow → runs ONE custom config → produces ONE selectable scenario card.
+- No multi-custom-config comparison (future enhancement).
+- No quick-fill presets inside advanced panel (existing scenario cards serve as presets).
+- CURE/QUENCH on skeleton days: treated as full working days for continuous ops; only takt and active shifts change.
+- Validation: ≥1 working day, takt 1–120 min, every working day needs ≥1 shift, 10h base disables night-only skeleton.
+- No config persistence (configure each time). No /api/generate update (planner-only). No simulation visualization changes.
 
 ### MVP 1.10 — Access control & schedule control
 

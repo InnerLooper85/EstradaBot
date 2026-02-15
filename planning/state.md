@@ -4,14 +4,14 @@
 
 ---
 
-## Active Phase: None (still in planning)
+## Active Phase: MVP 1.9 — Extended Simulation
 
 ## Overall Status
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 0: Pre-2.0 cleanup | NOT STARTED | Automated tests, utilization report, role normalization |
-| Phase 1: Extended simulation | BLOCKED | Waiting on Sean's input (skeleton shifts, 10hr times) |
+| Phase 0: Pre-2.0 cleanup | PARTIAL | MVP 1.8 completed role normalization, utilization report, Days Idle. Automated tests still pending. |
+| Phase 1: Extended simulation | IN PROGRESS | MVP 1.9 — skeleton shifts, 6-day weeks, per-day config. Design deglazed and approved. |
 | Phase 2: User roles & RBAC | BLOCKED | Waiting on Sean to confirm role matrix |
 | Phase 3: Core Mapping DB | BLOCKED | Waiting on Sean's edit permission decisions |
 | Phase 4: Days Idle | BLOCKED | Waiting on "Last Move Date" data source |
@@ -31,3 +31,4 @@ Top 3 needed to unblock work:
 | Date | Session | What happened |
 |------|---------|---------------|
 | Feb 15, 2026 | Planning setup | Created planning directory structure, roadmap, state tracking |
+| Feb 15, 2026 | MVP 1.9 design | Deglazed implementation plan. Approved: Mon-Sat grid, per-day full/skeleton, takt in minutes, 6day_12h preset, advanced config panel (single custom run), CURE/QUENCH treat skeleton as working days. Deferred: multi-config comparison, config persistence, /api/generate updates, sim visualization. |

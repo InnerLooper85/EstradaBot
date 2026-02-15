@@ -1,7 +1,7 @@
 # EstradaBot — Session Memory
 
 **Last updated:** February 15, 2026
-**Current deployed version:** MVP 1.7 (on master)
+**Current deployed version:** MVP 1.8.2 (on master)
 
 ---
 
