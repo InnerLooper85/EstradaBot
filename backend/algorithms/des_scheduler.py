@@ -19,6 +19,21 @@ import heapq
 # =============================================================================
 
 @dataclass
+class DayShiftConfig:
+    """
+    Per-day shift configuration for advanced scheduling.
+
+    Defines how a specific day of the week operates:
+    - shift_mode: 'full' (normal staffing) or 'skeleton' (reduced staff, longer takt)
+    - active_shifts: 'day', 'night', or 'both'
+    - takt_time_minutes: Takt time for this day (1-120 minutes)
+    """
+    shift_mode: str = 'full'        # 'full' or 'skeleton'
+    active_shifts: str = 'both'     # 'day', 'night', or 'both'
+    takt_time_minutes: int = 30     # Per-day takt override
+
+
+@dataclass
 class WorkScheduleConfig:
     """
     Work schedule configuration with configurable shift hours.
@@ -27,6 +42,7 @@ class WorkScheduleConfig:
     - 10-hour shifts: Day only (5:00 AM - 3:00 PM), no night shift
     - 12-hour shifts: Day (5:00 AM - 5:00 PM), Night (5:00 PM - 5:00 AM)
     - Configurable working days (e.g., Mon-Thu or Mon-Fri)
+    - Per-day configurations (full/skeleton, day/night/both, takt override)
     - Handover: 30 minutes at shift start
     - Breaks adjusted per shift length
     """
@@ -39,6 +55,10 @@ class WorkScheduleConfig:
     has_night_shift: bool = True
     handover_minutes: int = 30
     takt_time_minutes: int = 30
+
+    # Per-day shift configurations (keyed by weekday int 0=Mon..5=Sat)
+    # If empty, all working days use the same config (backward compatible)
+    day_configs: Dict[int, DayShiftConfig] = field(default_factory=dict)
 
     # Break times (hour, minute, duration_minutes)
     day_breaks: List[Tuple[int, int, int]] = field(default_factory=lambda: [
@@ -53,13 +73,17 @@ class WorkScheduleConfig:
     ])
 
     @classmethod
-    def create(cls, working_days: List[int] = None, shift_hours: int = 12) -> 'WorkScheduleConfig':
+    def create(cls, working_days: List[int] = None, shift_hours: int = 12,
+               day_configs: Dict[int, 'DayShiftConfig'] = None,
+               takt_time_minutes: int = 30) -> 'WorkScheduleConfig':
         """
         Factory method to create a properly configured WorkScheduleConfig.
 
         Args:
             working_days: List of weekday integers (0=Mon). Defaults to Mon-Thu.
             shift_hours: 10 or 12 hour shifts. Defaults to 12.
+            day_configs: Optional per-day shift configurations for advanced mode.
+            takt_time_minutes: Default takt time in minutes (1-120). Defaults to 30.
 
         Returns:
             Configured WorkScheduleConfig instance.
@@ -77,6 +101,8 @@ class WorkScheduleConfig:
                 shift2_start=15,   # Not used (no night shift)
                 shift2_end=5,      # Not used
                 has_night_shift=False,
+                takt_time_minutes=takt_time_minutes,
+                day_configs=day_configs or {},
                 day_breaks=[
                     (9, 0, 15),    # 9:00 AM - 15 min break
                     (11, 0, 45),   # 11:00 AM - 45 min lunch
@@ -93,6 +119,8 @@ class WorkScheduleConfig:
                 shift2_start=17,   # 5 PM
                 shift2_end=5,      # 5 AM
                 has_night_shift=True,
+                takt_time_minutes=takt_time_minutes,
+                day_configs=day_configs or {},
                 day_breaks=[
                     (9, 0, 15),    # 9:00 AM - 15 min break
                     (11, 0, 45),   # 11:00 AM - 45 min lunch
@@ -105,6 +133,31 @@ class WorkScheduleConfig:
                 ],
             )
 
+    def get_day_config(self, weekday: int) -> Optional[DayShiftConfig]:
+        """Get per-day config for a weekday, or None if using defaults."""
+        return self.day_configs.get(weekday)
+
+    def get_takt_for_day(self, weekday: int) -> int:
+        """Get takt time in minutes for a specific weekday."""
+        dc = self.get_day_config(weekday)
+        if dc:
+            return dc.takt_time_minutes
+        return self.takt_time_minutes
+
+    def has_night_shift_on_day(self, weekday: int) -> bool:
+        """Check if night shift is active on a specific weekday."""
+        dc = self.get_day_config(weekday)
+        if dc:
+            return dc.active_shifts in ('night', 'both')
+        return self.has_night_shift
+
+    def has_day_shift_on_day(self, weekday: int) -> bool:
+        """Check if day shift is active on a specific weekday."""
+        dc = self.get_day_config(weekday)
+        if dc:
+            return dc.active_shifts in ('day', 'both')
+        return True  # Day shift always on in non-advanced mode
+
     def is_working_day(self, dt: datetime) -> bool:
         """Check if the date is a working day."""
         return dt.weekday() in self.working_days
@@ -113,9 +166,14 @@ class WorkScheduleConfig:
         """
         Get all blocked periods (breaks, lunch, handover) for a given day.
         Returns list of (start, end) tuples.
+
+        Per-day shift awareness: on days with active_shifts='night' only,
+        the day shift hours are blocked. On days with active_shifts='day' only,
+        the night shift hours are blocked.
         """
         periods = []
         date = dt.date()
+        weekday = date.weekday()
 
         # Check if this is a working day
         if not self.is_working_day(dt):
@@ -124,22 +182,31 @@ class WorkScheduleConfig:
             day_end = day_start + timedelta(days=1)
             return [(day_start, day_end)]
 
-        # Before day shift starts (midnight to shift1_start)
         day_start = datetime.combine(date, datetime.min.time())
         shift1_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_start))
-        if not self.has_night_shift:
-            # Block time before day shift starts
+
+        # Per-day shift awareness
+        day_shift_active = self.has_day_shift_on_day(weekday)
+        night_shift_active = self.has_night_shift_on_day(weekday) and self.has_night_shift
+
+        if not night_shift_active:
+            # Block time before day shift starts (midnight to shift1_start)
             periods.append((day_start, shift1_start))
 
-        # Day shift handover (5:00-5:30)
-        periods.append((shift1_start, shift1_start + timedelta(minutes=self.handover_minutes)))
+        if day_shift_active:
+            # Day shift handover (5:00-5:30)
+            periods.append((shift1_start, shift1_start + timedelta(minutes=self.handover_minutes)))
 
-        # Day shift breaks
-        for hour, minute, duration in self.day_breaks:
-            break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
-            periods.append((break_start, break_start + timedelta(minutes=duration)))
+            # Day shift breaks
+            for hour, minute, duration in self.day_breaks:
+                break_start = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
+                periods.append((break_start, break_start + timedelta(minutes=duration)))
+        else:
+            # Day shift not active — block entire day shift window
+            shift1_end_dt = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_end))
+            periods.append((shift1_start, shift1_end_dt))
 
-        if self.has_night_shift:
+        if night_shift_active:
             # Night shift handover (5:00 PM - 5:30 PM)
             shift2_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift2_start))
             periods.append((shift2_start, shift2_start + timedelta(minutes=self.handover_minutes)))
@@ -155,9 +222,12 @@ class WorkScheduleConfig:
                                                   datetime.min.time().replace(hour=hour, minute=minute))
                 periods.append((break_start, break_start + timedelta(minutes=duration)))
         else:
-            # No night shift: block from shift1_end to end of day (and overnight)
-            shift1_end_dt = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_end))
+            # No night shift on this day: block from shift1_end to end of day
+            shift1_end_dt = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_end
+                                             if day_shift_active else self.shift1_start))
             next_day = datetime.combine(date + timedelta(days=1), datetime.min.time())
+            if day_shift_active:
+                shift1_end_dt = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_end))
             periods.append((shift1_end_dt, next_day))
 
         return sorted(periods, key=lambda x: x[0])
@@ -172,21 +242,32 @@ class WorkScheduleConfig:
         """
         date = dt.date()
         hour = dt.hour
+        weekday = date.weekday()
 
+        # Check if night shift was active on the relevant day
         if self.has_night_shift:
-            # For overnight checking, we need to check if yesterday was a working day
             if hour < self.shift2_end:
-                # We're in the early morning - check if yesterday was a working day
+                # We're in the early morning — this is yesterday's night shift
                 yesterday = date - timedelta(days=1)
                 if yesterday.weekday() not in self.working_days:
                     return True
-            else:
-                # Normal day check
-                if date.weekday() not in self.working_days:
+                # Check if yesterday had night shift active
+                if not self.has_night_shift_on_day(yesterday.weekday()):
                     return True
+            else:
+                if weekday not in self.working_days:
+                    return True
+                # During day shift hours, check if day shift is active
+                if hour >= self.shift1_start and hour < self.shift1_end:
+                    if not self.has_day_shift_on_day(weekday):
+                        return True
+                # During night shift hours, check if night shift is active
+                if hour >= self.shift2_start:
+                    if not self.has_night_shift_on_day(weekday):
+                        return True
         else:
             # No night shift: early morning and after shift end are blocked
-            if date.weekday() not in self.working_days:
+            if weekday not in self.working_days:
                 return True
             if hour < self.shift1_start or hour >= self.shift1_end:
                 return True
@@ -598,7 +679,8 @@ class DESScheduler:
     def __init__(self, orders: List[Dict], core_mapping: Dict,
                  core_inventory: Dict, operations: Dict = None,
                  work_schedule: Any = None, working_days: List[int] = None,
-                 shift_hours: int = 12):
+                 shift_hours: int = 12, day_configs: Dict = None,
+                 takt_time_minutes: int = 30):
         """
         Initialize the DES scheduler.
 
@@ -610,6 +692,8 @@ class DESScheduler:
             work_schedule: Legacy parameter, ignored (uses WorkScheduleConfig)
             working_days: Override working days (e.g., [0,1,2,3] for 4-day, [0,1,2,3,4] for 5-day)
             shift_hours: Shift length in hours (10 or 12). Defaults to 12.
+            day_configs: Optional per-day shift configs (Dict[int, DayShiftConfig]).
+            takt_time_minutes: Default takt time (1-120 min). Defaults to 30.
         """
         self.orders = orders
         self.core_mapping = core_mapping
@@ -619,7 +703,9 @@ class DESScheduler:
         # Create work schedule config using factory method
         self.work_config = WorkScheduleConfig.create(
             working_days=working_days,
-            shift_hours=shift_hours
+            shift_hours=shift_hours,
+            day_configs=day_configs,
+            takt_time_minutes=takt_time_minutes
         )
 
         # Create stations and machines
@@ -1002,8 +1088,9 @@ class DESScheduler:
         Schedule BLAST arrivals at takt intervals, checking core availability.
         Within the same priority tier, alternates between rubber types (XE/HR)
         when possible. XD/XR orders are scheduled on Desma 5 (flex).
+
+        Uses per-day takt times when day_configs are set (advanced mode).
         """
-        takt_minutes = self.work_config.takt_time_minutes
         current_slot = start_date
         last_rubber_type = None  # Track for alternation
 
@@ -1111,7 +1198,8 @@ class DESScheduler:
                 scheduled_this_slot = True
 
             if scheduled_this_slot:
-                # Advance to next takt slot
+                # Advance to next takt slot (use per-day takt if configured)
+                takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
                 current_slot = self.work_config.advance_time(
                     current_slot, takt_minutes / 60.0
                 )
@@ -1139,6 +1227,7 @@ class DESScheduler:
                     break
 
                 # Jump to earliest availability
+                takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
                 next_slot = max(
                     self.work_config.advance_time(current_slot, takt_minutes / 60.0),
                     earliest_avail

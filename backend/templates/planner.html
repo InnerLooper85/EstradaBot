@@ -54,14 +54,24 @@
     <div class="card-body">
         <div id="scenarioPlaceholder" class="text-center py-4 text-muted">
             <i class="bi bi-diagram-3" style="font-size: 3rem;"></i>
-            <p class="mt-2">Click "Simulate Base Schedule" to run 3 scheduling scenarios.<br>
+            <p class="mt-2">Click "Simulate Base Schedule" to run 4 scheduling scenarios.<br>
             This simulates the schedule <strong>without</strong> special requests or hot list changes.</p>
         </div>
 
         <div id="scenarioResults" style="display: none;">
-            <div class="row" id="scenarioCards">
+            <div class="row g-3" id="scenarioCards">
                 <!-- Scenario cards will be inserted here by JS -->
             </div>
+
+            <!-- Custom Configuration -->
+            <div class="text-center mt-3" id="customConfigTrigger">
+                <button class="btn btn-outline-secondary btn-sm" onclick="showCustomConfig()">
+                    <i class="bi bi-sliders"></i> Custom Configuration
+                </button>
+            </div>
+
+            <!-- Custom scenario result card (hidden until run) -->
+            <div class="row g-3 mt-2" id="customScenarioCard" style="display: none;"></div>
         </div>
     </div>
 </div>
@@ -249,6 +259,164 @@
     </div>
 </div>
 
+<!-- Custom Configuration Modal -->
+<div class="modal fade" id="customConfigModal" tabindex="-1" aria-labelledby="customConfigLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="customConfigLabel"><i class="bi bi-sliders"></i> Custom Shift Configuration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Base Shift Length</label>
+                    <select class="form-select form-select-sm w-auto" id="customShiftHours" onchange="updateCustomConfigUI()">
+                        <option value="12" selected>12-hour shifts (Day + Night)</option>
+                        <option value="10">10-hour shifts (Day only)</option>
+                    </select>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" id="customDayGrid">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Day</th>
+                                <th class="text-center">Working</th>
+                                <th class="text-center">Mode</th>
+                                <th class="text-center">Active Shifts</th>
+                                <th class="text-center" style="width: 120px;">Takt (min)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr data-day="0">
+                                <td><strong>Monday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working" checked></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode">
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts">
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120"></td>
+                            </tr>
+                            <tr data-day="1">
+                                <td><strong>Tuesday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working" checked></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode">
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts">
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120"></td>
+                            </tr>
+                            <tr data-day="2">
+                                <td><strong>Wednesday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working" checked></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode">
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts">
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120"></td>
+                            </tr>
+                            <tr data-day="3">
+                                <td><strong>Thursday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working" checked></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode">
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts">
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120"></td>
+                            </tr>
+                            <tr data-day="4">
+                                <td><strong>Friday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working"></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode" disabled>
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts" disabled>
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120" disabled></td>
+                            </tr>
+                            <tr data-day="5">
+                                <td><strong>Saturday</strong></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input custom-day-working"></td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-mode" disabled>
+                                        <option value="full" selected>Full</option>
+                                        <option value="skeleton">Skeleton</option>
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    <select class="form-select form-select-sm custom-day-shifts" disabled>
+                                        <option value="both" selected>Day + Night</option>
+                                        <option value="day">Day Only</option>
+                                        <option value="night">Night Only</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" class="form-control form-control-sm custom-day-takt" value="30" min="1" max="120" disabled></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="customConfigErrors" class="alert alert-danger d-none" role="alert"></div>
+
+                <p class="text-muted small mb-0">
+                    <strong>Skeleton mode:</strong> All machines remain available, but fewer staff means longer takt time.
+                    CURE/QUENCH run continuously on all working days regardless of skeleton/full mode.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="runCustomScenario()">
+                    <i class="bi bi-play-circle"></i> Run Custom Simulation
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Special Requests Link -->
 <div class="card mb-4">
     <div class="card-body text-center py-3">
@@ -277,8 +445,11 @@
         background-color: #f0f7ff;
     }
     .scenario-card .metric {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
         font-weight: bold;
+    }
+    .custom-day-mode, .custom-day-shifts {
+        min-width: 110px;
     }
     .workflow-step .badge {
         width: 28px;
@@ -368,7 +539,7 @@
     // ========== Step 2: Simulate Scenarios ==========
 
     function simulateScenarios() {
-        showLoading('Simulating 3 scheduling scenarios...');
+        showLoading('Simulating 4 scheduling scenarios...');
         $('#btnSimulate').prop('disabled', true);
 
         fetch('/api/planner/simulate-scenarios', {
@@ -389,7 +560,7 @@
             scenarioData = data.scenarios;
             renderScenarioCards(data.scenarios);
             updateStep(2);
-            showToast('3 scenarios simulated successfully!');
+            showToast('4 scenarios simulated successfully!');
         })
         .catch(err => {
             hideLoading();
@@ -398,75 +569,201 @@
         });
     }
 
+    function buildScenarioCard(key, scenario, colClass) {
+        const configs = {
+            '4day_10h': {icon: 'bi-clock', color: 'primary'},
+            '4day_12h': {icon: 'bi-clock-fill', color: 'success'},
+            '5day_12h': {icon: 'bi-calendar-week', color: 'warning'},
+            '6day_12h': {icon: 'bi-calendar-range', color: 'info'},
+            'custom':   {icon: 'bi-sliders', color: 'secondary'}
+        };
+        const cfg = configs[key] || {icon: 'bi-clock', color: 'secondary'};
+        const stats = scenario.stats;
+        const onTimeRate = stats.total_orders > 0
+            ? Math.round((stats.on_time / stats.total_orders) * 100)
+            : 0;
+        const isSelected = selectedScenario === key;
+
+        return `
+            <div class="${colClass}">
+                <div class="card scenario-card ${isSelected ? 'selected' : ''}"
+                     onclick="selectScenario('${key}')" id="scenario-${key}">
+                    <div class="card-header bg-${cfg.color} text-white text-center py-2">
+                        <i class="bi ${cfg.icon}"></i> ${scenario.label}
+                    </div>
+                    <div class="card-body py-2">
+                        <div class="row text-center">
+                            <div class="col-6 mb-1">
+                                <div class="metric">${stats.total_orders}</div>
+                                <small class="text-muted">Total</small>
+                            </div>
+                            <div class="col-6 mb-1">
+                                <div class="metric text-success">${onTimeRate}%</div>
+                                <small class="text-muted">On Time</small>
+                            </div>
+                            <div class="col-4">
+                                <div class="text-success fw-bold">${stats.on_time}</div>
+                                <small class="text-muted">OK</small>
+                            </div>
+                            <div class="col-4">
+                                <div class="text-danger fw-bold">${stats.late}</div>
+                                <small class="text-muted">Late</small>
+                            </div>
+                            <div class="col-4">
+                                <div class="text-warning fw-bold">${stats.at_risk}</div>
+                                <small class="text-muted">Risk</small>
+                            </div>
+                        </div>
+                        <hr class="my-1">
+                        <div class="text-center small">
+                            <span class="text-muted">Avg:</span>
+                            <strong>${stats.avg_turnaround}d</strong>
+                        </div>
+                        <div class="text-center mt-1">
+                            <button class="btn btn-sm ${isSelected ? 'btn-primary' : 'btn-outline-primary'}"
+                                    onclick="event.stopPropagation(); selectScenario('${key}')">
+                                ${isSelected ? '<i class="bi bi-check-circle"></i> Selected' : 'Select'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     function renderScenarioCards(scenarios) {
         const container = $('#scenarioCards');
         container.empty();
 
-        const configs = {
-            '4day_10h': {icon: 'bi-clock', color: 'primary'},
-            '4day_12h': {icon: 'bi-clock-fill', color: 'success'},
-            '5day_12h': {icon: 'bi-calendar-week', color: 'warning'}
-        };
-
+        // Render standard scenarios (skip 'custom' — it has its own row)
         for (const [key, scenario] of Object.entries(scenarios)) {
-            const cfg = configs[key] || {icon: 'bi-clock', color: 'secondary'};
-            const stats = scenario.stats;
-            const onTimeRate = stats.total_orders > 0
-                ? Math.round((stats.on_time / stats.total_orders) * 100)
-                : 0;
+            if (key === 'custom') continue;
+            container.append(buildScenarioCard(key, scenario, 'col-md-3'));
+        }
 
-            const isSelected = selectedScenario === key;
-
-            const card = `
-                <div class="col-md-4">
-                    <div class="card scenario-card ${isSelected ? 'selected' : ''}"
-                         onclick="selectScenario('${key}')" id="scenario-${key}">
-                        <div class="card-header bg-${cfg.color} text-white text-center">
-                            <i class="bi ${cfg.icon}"></i> ${scenario.label}
-                        </div>
-                        <div class="card-body">
-                            <div class="row text-center">
-                                <div class="col-6 mb-2">
-                                    <div class="metric">${stats.total_orders}</div>
-                                    <small class="text-muted">Total Orders</small>
-                                </div>
-                                <div class="col-6 mb-2">
-                                    <div class="metric text-success">${onTimeRate}%</div>
-                                    <small class="text-muted">On Time Rate</small>
-                                </div>
-                                <div class="col-4">
-                                    <div class="text-success fw-bold">${stats.on_time}</div>
-                                    <small class="text-muted">On Time</small>
-                                </div>
-                                <div class="col-4">
-                                    <div class="text-danger fw-bold">${stats.late}</div>
-                                    <small class="text-muted">Late</small>
-                                </div>
-                                <div class="col-4">
-                                    <div class="text-warning fw-bold">${stats.at_risk}</div>
-                                    <small class="text-muted">At Risk</small>
-                                </div>
-                            </div>
-                            <hr>
-                            <div class="text-center">
-                                <span class="text-muted">Avg Turnaround:</span>
-                                <strong>${stats.avg_turnaround} days</strong>
-                            </div>
-                            <div class="text-center mt-2">
-                                <button class="btn btn-sm ${isSelected ? 'btn-primary' : 'btn-outline-primary'}"
-                                        onclick="event.stopPropagation(); selectScenario('${key}')">
-                                    ${isSelected ? '<i class="bi bi-check-circle"></i> Selected' : 'Select This Mode'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            container.append(card);
+        // Render custom card if it exists
+        if (scenarios['custom']) {
+            const customContainer = $('#customScenarioCard');
+            customContainer.empty();
+            customContainer.append(buildScenarioCard('custom', scenarios['custom'], 'col-md-4 mx-auto'));
+            customContainer.show();
         }
 
         $('#scenarioPlaceholder').hide();
         $('#scenarioResults').show();
+    }
+
+    // ========== Custom Configuration ==========
+
+    function showCustomConfig() {
+        $('#customConfigErrors').addClass('d-none');
+        const modal = new bootstrap.Modal(document.getElementById('customConfigModal'));
+        modal.show();
+    }
+
+    function updateCustomConfigUI() {
+        const shiftHours = parseInt($('#customShiftHours').val());
+        const is10h = shiftHours === 10;
+
+        // Toggle working day checkbox enables/disables
+        $('#customDayGrid tbody tr').each(function() {
+            const row = $(this);
+            const working = row.find('.custom-day-working').is(':checked');
+            row.find('.custom-day-mode').prop('disabled', !working);
+            row.find('.custom-day-shifts').prop('disabled', !working);
+            row.find('.custom-day-takt').prop('disabled', !working);
+
+            if (is10h) {
+                // 10h base: force day-only, disable night-only option
+                row.find('.custom-day-shifts').val('day').prop('disabled', true);
+            }
+        });
+    }
+
+    // Wire up working checkboxes to enable/disable row controls
+    $(document).on('change', '.custom-day-working', function() {
+        updateCustomConfigUI();
+    });
+
+    function runCustomScenario() {
+        const shiftHours = parseInt($('#customShiftHours').val());
+        const days = {};
+        let hasWorkingDay = false;
+        const errors = [];
+
+        $('#customDayGrid tbody tr').each(function() {
+            const row = $(this);
+            const dayNum = row.data('day');
+            const working = row.find('.custom-day-working').is(':checked');
+
+            if (!working) {
+                days[dayNum] = {working: false};
+                return;
+            }
+
+            hasWorkingDay = true;
+            const mode = row.find('.custom-day-mode').val();
+            const shifts = row.find('.custom-day-shifts').val();
+            const takt = parseInt(row.find('.custom-day-takt').val());
+
+            if (isNaN(takt) || takt < 1 || takt > 120) {
+                const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                errors.push(`${dayNames[dayNum]}: Takt must be 1-120 minutes`);
+            }
+
+            if (shiftHours === 10 && shifts === 'night') {
+                const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                errors.push(`${dayNames[dayNum]}: Night-only is not available with 10-hour shifts`);
+            }
+
+            days[dayNum] = {
+                working: true,
+                shift_mode: mode,
+                active_shifts: shifts,
+                takt: takt
+            };
+        });
+
+        if (!hasWorkingDay) {
+            errors.push('At least one working day is required');
+        }
+
+        if (errors.length > 0) {
+            $('#customConfigErrors').removeClass('d-none').html(errors.join('<br>'));
+            return;
+        }
+
+        // Close modal and run
+        bootstrap.Modal.getInstance(document.getElementById('customConfigModal')).hide();
+        showLoading('Running custom simulation...');
+
+        fetch('/api/planner/simulate-custom-scenario', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({shift_hours: shiftHours, days: days})
+        })
+        .then(r => r.json())
+        .then(data => {
+            hideLoading();
+            if (data.error) {
+                showToast(data.error, 'error');
+                return;
+            }
+
+            // Add to scenarioData and render
+            scenarioData['custom'] = data.scenario;
+
+            const customContainer = $('#customScenarioCard');
+            customContainer.empty();
+            customContainer.append(buildScenarioCard('custom', data.scenario, 'col-md-4 mx-auto'));
+            customContainer.show();
+
+            showToast('Custom scenario simulated!');
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error: ' + err.message, 'error');
+        });
     }
 
     function selectScenario(key) {

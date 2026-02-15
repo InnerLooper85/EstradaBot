@@ -208,7 +208,7 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.8.2
+**Current Version:** MVP 1.9.0
 
 ### Version Numbering: `X.Y.Z`
 
