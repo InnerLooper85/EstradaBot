@@ -208,7 +208,7 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.8
+**Current Version:** MVP 1.8.1
 
 When merging changes to `master` that will be deployed to production, you MUST:
 
