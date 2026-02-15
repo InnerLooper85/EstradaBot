@@ -1,285 +1,223 @@
 # EstradaBot — MVP 2.0 Planning Document
 
-**Document Version:** 1.0
-**Date:** February 4, 2026
-**Status:** Early Planning
-**Prerequisites:** Complete MVP 1.1 (all high-priority user feedback) and remaining MVP 1.0 implementation plan items
+**Document Version:** 2.0
+**Date:** February 15, 2026
+**Status:** Planning
+**Prerequisites:** Complete remaining MVP 1.x backlog items (see Section 4)
 
 ---
 
 ## 1. Overview
 
-MVP 2.0 represents the next major evolution of EstradaBot. It focuses on:
-- Expanded schedule simulation options
-- User role-based permissions and workflows
-- Replacing static file uploads with editable databases
-- GUI-based schedule manipulation
-- Live data integration
+MVP 2.0 represents the next major evolution of EstradaBot. The scope has been redefined (Feb 15, 2026) around two flagship features:
 
-MVP 2.0 development should begin after:
-1. All MVP 1.1 items (Phase 8 in the implementation plan) are complete
-2. Remaining MVP 1.0 items are complete (rubber grouping optimization, resource utilization reports, alert reports, automated tests)
+1. **Rotors Product Line** — Add a second manufacturing department with its own staffing, machines, and scheduling logic, sharing the existing UI framework and feature set.
+2. **Customer-Facing Reports & Quoting System** — Enable sales agents and customer service reps to generate customer-shareable reports and create quotes that temporarily reserve production capacity.
 
----
+Plus two carryover items from the original MVP 2.0 plan:
 
-## 2. Deferred User Feedback Items
-
-These items were identified during the February 4, 2026 feedback session and classified as low priority / MVP 2.0.
+3. **Full Schedule Manipulation GUI** — Drag-drop reordering, resource reassignment, manual overrides.
+4. **Core Mapping Editable Database** — Replace Excel upload with a web-editable database.
 
 ---
 
-### 2.1 Days Idle Column (Customer Service Request)
+## 2. Feature Specifications
 
-**Requirement:** Add a "Days Idle" column between "Turnaround" and "Status" on the schedule page.
+### 2.1 Rotors Product Line (Department #2)
 
-**Definition:** Days Idle = Days since the order's last physical movement in the shop.
+**Requirement:** Add Rotors as a separate department alongside the existing Stators department. Each department has its own:
+- Staffing model (headcount, shifts, roles)
+- Machine set (different equipment types and counts)
+- Scheduling logic and constraints (different takt times, process steps, priorities)
+- Input data (separate or combined Sales Order / Shop Dispatch files)
 
-**Dependencies / To-Do for Product Owner:**
-- [ ] **Sean:** Provide the "Last Move Date" data field. Determine which SAP report contains this data and the exact column name.
-- [ ] **Sean:** Clarify if "Last Move Date" should come from a new uploaded report, be added to the existing Sales Order report, or pulled from a live data feed.
+The two departments share:
+- The same web UI framework (navigation, layout, page structure)
+- The same feature set (simulation, planner workflow, special requests, reports, etc.)
+- The same user accounts and role-based access
+- The same deployment and infrastructure
 
-**Clarifying Questions from Claude:**
-1. Is "Last Move Date" the date the order last changed work centers in SAP? Or the last date any activity was recorded?
-2. Should "Days Idle" be calculated as `Today - Last Move Date` (real-time) or `Schedule Generation Date - Last Move Date` (snapshot)?
-3. Should orders with 0 days idle (recently moved) be visually distinguished from stale orders?
-4. Is there a threshold for "too idle" that should trigger an alert? (e.g., > 5 days idle = warning)
+**Architecture Implications:**
+- The DES engine (`des_scheduler.py`) must become **department-aware** — either parameterized per department or split into department-specific subclasses with a shared base.
+- Data models, parsers, and exporters need to handle department context (which department does this order belong to?).
+- The UI needs a **department selector** or **department-scoped views** — user picks Stators or Rotors, and all pages reflect that context.
+- GCS storage paths should be department-scoped (e.g., `gs://estradabot-files/stators/`, `gs://estradabot-files/rotors/`).
+- Configuration (machines, takt times, shift patterns) must be per-department rather than global.
+
+**Open Questions for Product Owner:**
+- [ ] What machines does Rotors use? How many of each?
+- [ ] What are the Rotor process steps / station sequence?
+- [ ] What are Rotor takt times per station?
+- [ ] Does Rotors use the same shift patterns as Stators, or different?
+- [ ] Does Rotors have the same priority system (5-tier BLAST)?
+- [ ] Are Sales Orders and Shop Dispatch reports shared between departments, or separate files?
+- [ ] Is there cross-department resource sharing (e.g., shared staff or machines)?
+- [ ] Should dashboards show both departments or one at a time?
+
+---
+
+### 2.2 Customer-Facing Reports & Quoting System
+
+**Requirement:** Sales agents and customer service reps can:
+1. **Generate customer-shareable reports** — filtered views of the schedule relevant to a specific customer, formatted for external sharing (PDF or Excel).
+2. **Create quotes for new orders** — enter prospective order details and get an estimated production slot / delivery date.
+3. **Reserve production capacity** — accepted quotes place **temporary holds** on production slots, preventing overbooking.
+4. **Auto-release expired quotes** — when a quote expires without converting to a real order, the held capacity is released back to the pool.
+
+**Architecture Implications:**
+- The scheduling engine needs a concept of **provisional entries** — orders that reserve capacity but aren't confirmed. These must be distinguishable from real orders.
+- Quote lifecycle: `draft` → `sent` → `accepted` (hold placed) → `converted` (becomes real order) or `expired` (hold released).
+- Need a quote expiry mechanism — either a background job or checked on each schedule run.
+- Customer reports need a **customer filter** — show only orders for a specific customer, with appropriate detail level (no internal notes, no other customers' data).
+- Report generation needs a **presentable export format** — likely branded PDF or clean Excel.
+- Role access: Sales agents and CS reps can create quotes and generate reports. Planners can see all quotes. Admins manage quote settings (default expiry period, etc.).
+
+**Open Questions for Product Owner:**
+- [ ] What information should appear on customer-facing reports? (Order #, product, estimated dates, status — what else?)
+- [ ] What's the default quote expiry period? (e.g., 7 days, 14 days, 30 days?)
+- [ ] Can a quote hold capacity across multiple machines/dates, or is it always a single slot?
+- [ ] Should quotes be visible on the main schedule view (e.g., shown in a different color)?
+- [ ] Do quotes need approval from a planner before the hold is placed, or can CS/sales reserve directly?
+- [ ] Should there be a limit on how much capacity can be held by quotes at any time?
+- [ ] What format for customer reports — PDF, Excel, or both?
+- [ ] Should customers be able to view their reports online (customer portal), or is it email/download only?
+
+---
+
+### 2.3 Full Schedule Manipulation GUI
+
+**Requirement:** Allow the planner to modify the schedule via a graphical interface:
+- Drag-and-drop reordering of orders within the schedule
+- Resource reassignment (move an order to a different machine or time slot)
+- Manual priority overrides that persist across schedule regenerations
+- "Reset to Algorithm" to revert manual changes
+- Visual distinction between algorithm-placed and manually-adjusted orders
+
+**Access:** Only planners can save changes. Other roles (CS) can simulate what-if scenarios without saving.
 
 **Technical Notes:**
-- This will require either a new parser for the data source or an additional column in an existing uploaded report
-- The schedule page DataTable will need a new column
-- Consider adding an "Idle" alert report alongside existing Promise Risk and Core Shortage alerts
+- Frontend: SortableJS or HTML5 drag-and-drop
+- Backend: Manual overrides stored as pinned positions that the DES engine respects
+- Re-simulation on change (background, with optimistic UI)
+
+**Open Questions for Product Owner:**
+- [ ] Scope: reorder only, or also reassign machines/resources?
+- [ ] Should CS have simulation/what-if drag-drop access?
+- [ ] How should pinned orders interact with new data uploads? (Stay pinned? Warn and ask?)
 
 ---
 
-### 2.2 Extended Schedule Simulation Options
+### 2.4 Core Mapping Editable Database
 
-**Requirement:** Allow users to simulate more scheduling configurations beyond the MVP 1.1 4/5 day toggle.
+**Requirement:** Replace the Core Mapping Excel upload with a persistent, web-editable database. Manufacturing Engineering users can add, edit, and deactivate core mappings directly in the browser.
 
-**Options to Support:**
+**Approach (decided Feb 15):**
+- MVP 1.x delivers a **read-only web view** of the current Core Mapping data.
+- MVP 2.0 adds **edit capability** backed by a database.
+- Database technology decision deferred until implementation.
 
-| Option | Values | Notes |
-|--------|--------|-------|
-| Work days per week | 4, 5, or 6 days | MVP 1.1 supports 4 and 5 |
-| Shift length | 10 or 12 hours | Currently hardcoded to 12 |
-| Number of shifts | 1 or 2 | Currently hardcoded to 2 |
-| Skeleton shifts | Custom configuration | Minimal crew, constrained core subset |
-
-**Skeleton Shift Definition:**
-- Minimal crew brought in (likely 1 shift, reduced machine availability)
-- Only certain cores/products run during skeleton shifts
-- Needs UI for selecting which cores or product families to include
-- Typical use case: weekend or holiday partial operation
-
-**Clarifying Questions from Claude:**
-1. For 10-hour shifts, what would the start/end times be? (e.g., 5:00 AM - 3:00 PM, 5:00 PM - 3:00 AM?)
-2. For a 6-day week, is the 6th day Saturday? Should it have the same shift configuration as weekdays?
-3. For single-shift operation, which shift is kept — day shift only?
-4. For skeleton shifts:
-   - How many machines would be available? (e.g., 2 of 5 Desma machines?)
-   - Which stations would be staffed?
-   - Should skeleton shifts be schedulable on specific days (e.g., "run skeleton on Fridays and Saturdays")?
-   - How would the user select which cores/products to run?
-5. Should users be able to combine options freely? (e.g., 6-day week + 10-hour shifts + skeleton shift on Saturday)
-6. How many pre-generated simulation variants is practical? With all combinations, this could be 12+ variants.
-
-**Technical Notes:**
-- The `WorkScheduleConfig` class in `des_scheduler.py` will need to be fully parameterized
-- Consider creating a "Schedule Configuration" page where users define simulation parameters
-- Pre-generating all combinations may be too slow; consider on-demand generation with caching
-- The toggle UI from MVP 1.1 will need to expand to support multiple options (possibly a configuration panel rather than simple toggle)
+**Open Questions for Product Owner:**
+- [ ] Which fields should be editable vs. read-only?
+- [ ] Should changes require approval, or is direct edit OK for MfgEng role?
+- [ ] Is version history / audit log needed?
+- [ ] Should bulk import from Excel still be supported alongside the editor?
 
 ---
 
-### 2.3 Replace Core Mapping Excel with Editable Database
+## 3. Proposed Implementation Sequence
 
-**Requirement:** Replace the Core Mapping Excel upload with a database that can be manipulated by users with appropriate rights (Manufacturing Engineering role).
+| Phase | Focus | Dependencies |
+|-------|-------|-------------|
+| Phase 1: Multi-Department Architecture | Refactor DES engine, data models, parsers, and UI to be department-aware. Stators continues working as-is. | None — foundational work |
+| Phase 2: Rotors Integration | Implement Rotor-specific scheduling logic, machines, takt times. Add Rotor parsers and config. | Phase 1 |
+| Phase 3: Customer Reports | Customer-filtered schedule views, PDF/Excel export for external sharing. | None (can parallel with Phase 1-2) |
+| Phase 4: Quoting System | Quote creation, capacity holds, expiry, conversion to real orders. | Phase 2 (needs working multi-dept scheduler) |
+| Phase 5: Schedule Manipulation GUI | Drag-drop reorder, resource reassignment, manual overrides. | Phase 2 (needs stable scheduler) |
+| Phase 6: Core Mapping Database | Persistent editable storage, web editor UI, migration from Excel. | None (can parallel) |
+| Phase 7: Testing & Refinement | End-to-end testing, UAT, performance tuning. | All phases |
 
-**Clarifying Questions from Claude:**
-1. Should this be a web-based UI where users can add/edit/delete core mappings directly on the site?
-2. Should there be an approval workflow for changes? (e.g., MfgEng proposes change, Admin approves)
-3. Should historical versions be tracked? (e.g., "Core 427 changed from HR to XE rubber on 2/15/2026")
-4. Should bulk import from Excel still be supported alongside the database editor?
-5. What about the Core Inventory sheet — should that also become editable via the web UI?
-6. Who should be able to add new cores vs. edit existing ones vs. delete/deactivate cores?
-
-**Technical Notes:**
-- This will likely require adding a database (SQLite or PostgreSQL) to the architecture
-- Currently the system is stateless (file-based storage via GCS) — adding a database is a significant architectural change
-- Alternative: Use GCS-stored JSON as a lightweight "database" with a web editor UI, avoiding a full database
-- Need to consider data migration from current Excel format
-- Will need audit logging for all changes
-
-**To-Do for Product Owner:**
-- [ ] **Sean:** Define which fields in the Core Mapping should be editable vs. read-only
-- [ ] **Sean:** Define the Manufacturing Engineering role permissions (what can they edit, what needs approval?)
-- [ ] **Sean:** Decide if historical versioning is needed or if simple edit-in-place is sufficient
+**Parallelization opportunities:**
+- Phases 3 and 6 can run in parallel with Phases 1-2.
+- Phase 5 can begin frontend work during Phase 2.
 
 ---
 
-### 2.4 GUI-Based Schedule Manipulation
+## 4. MVP 1.x Backlog (Prerequisites for 2.0)
 
-**Requirement:** Allow the planner to modify the schedule via a GUI on the site (dragging orders up/down, individually reprioritize specific orders, etc.). Only the planner can lock these changes in; other users can simulate but not save.
+These items were moved from the original MVP 2.0 plan to 1.x during the Feb 15, 2026 roadmap replanning:
 
-**Clarifying Questions from Claude:**
-1. When the planner drags an order to a new position, should the entire schedule be re-simulated with the new ordering, or should only the moved order's times change?
-2. Should there be an "undo" capability for manual changes?
-3. Should manually repositioned orders be visually marked as "manually adjusted" vs. "algorithm-placed"?
-4. Should there be a "Reset to Algorithm" button to revert all manual changes?
-5. How should manual overrides interact with future schedule regenerations? (i.e., if the planner pins Order A to position 3, does it stay there when new data is uploaded and schedule is regenerated?)
-6. Should other roles (Customer Service) be able to simulate drag/drop changes without saving? This would support "what-if" analysis.
-7. What level of granularity — can the planner only reorder within the BLAST sequence, or can they also reassign cores, change Desma machines, etc.?
+| Item | Priority | Notes |
+|------|----------|-------|
+| Resource utilization report | MEDIUM | MVP 1.8 target |
+| Role name normalization | MEDIUM | Fix `customer_service` vs `customerservice` |
+| Extended simulation (6-day, skeleton shifts) | HIGH | Skeleton = takt time adjustment; user configures per-day |
+| RBAC / user management | MEDIUM | Role matrix deferred |
+| Core Mapping: read-only web view | MEDIUM | Precursor to 2.0 editable database |
+| Days Idle column | MEDIUM | From Shop Dispatch "Elapsed Days"; 9999→0 rule |
+| Basic schedule reorder | MEDIUM | Simple priority adjustment (precursor to full GUI) |
+| Rubber grouping optimization | LOW | Changeover minimization |
 
-**Technical Notes:**
-- Frontend: Will need a drag-and-drop library (e.g., SortableJS, or HTML5 drag-and-drop API)
-- Backend: Need to support "manual overrides" concept — orders with fixed positions that the algorithm respects
-- Performance: Re-simulating the full schedule on every drag event may be too slow; consider optimistic UI updates with background re-simulation
-- State management: Need to distinguish between algorithm-generated and manually-adjusted schedules
-
-**To-Do for Product Owner:**
-- [ ] **Sean:** Decide on the scope of manual manipulation (reorder only? reassign resources? both?)
-- [ ] **Sean:** Decide if Customer Service should have simulation/what-if drag-drop access
-
----
-
-### 2.5 User Group Role Definitions
-
-**Requirement:** Fully define user group responsibilities and rights for all roles.
-
-**Proposed Role Matrix (from User Feedback):**
-
-| Capability | Admin | Planner | Customer Service | Mfg Engineering | Operator/Guest |
-|------------|-------|---------|-----------------|-----------------|----------------|
-| Upload Sales Order / Shop Dispatch | Yes | Yes | No | No | No |
-| Upload Hot List | Yes | Yes | Yes | No | No |
-| Upload Core Mapping / Process Map | Yes | No | No | Yes | No |
-| Generate Schedule | Yes | Yes | No | No | No |
-| Publish Schedule | Yes | Yes | No | No | No |
-| View Published Schedule | Yes | Yes | Yes | Yes | Yes |
-| Simulate Schedule (personal) | Yes | Yes | Yes | No | No |
-| Download Reports | Yes | Yes | Yes (limited) | No | No |
-| Make Hot List Requests | No | No | Yes | No | No |
-| Simulate Impact Analysis | Yes | Yes | Yes | No | No |
-| Request Priority Override (FIFO bypass) | No | No | Yes | No | No |
-| Edit Core Mapping Database | Yes | No | No | Yes | No |
-| Request Engineering Work Orders | No | No | No | Yes | No |
-| View BLAST/Core Schedules | Yes | Yes | Yes | Yes | Yes |
-| Manage Users | Yes | No | No | No | No |
-| Submit User Feedback | Yes | Yes | Yes | Yes | Yes |
-
-**Clarifying Questions from Claude:**
-1. Are "Hot List Requests" different from uploading a Hot List file? Is this a request workflow where CS submits a request and the Planner approves it?
-2. For "Request Priority Override" — does this mean Customer Service can request that a specific customer's orders bypass FIFO? How does the Planner approve/deny this?
-3. For "Engineering Work Orders" — these only appear on the Shop Dispatch report, not the main schedule. Should the system have a separate view for engineering work orders?
-4. Should there be a notification system when requests are made? (e.g., CS submits a hot list request → Planner gets a notification)
-5. The current system uses environment variables for user management. For MVP 2.0, should we move to a database-backed user management system with a web UI for creating/managing users?
-
-**Technical Notes:**
-- Current auth system is simple (env vars, two roles: admin/user). MVP 2.0 needs full RBAC.
-- Options: Flask-Security, Flask-Principal, or custom middleware
-- User management UI will be needed (admin page to add/edit/delete users and assign roles)
-- Consider using Flask sessions or JWT for more granular permission checking
-
-**To-Do for Product Owner:**
-- [ ] **Sean:** Confirm the role matrix above or provide corrections
-- [ ] **Sean:** Define the hot list request workflow (is it a form submission? Does it require approval?)
-- [ ] **Sean:** Define the priority override workflow
-- [ ] **Sean:** Define the engineering work order workflow
-- [ ] **Sean:** Decide on notification preferences (email, in-app, both?)
+### Skeleton Shift Details (for Extended Simulation)
+- Not reduced machines — it's a **takt time adjustment** (all machines available, fewer staff = longer takt)
+- User enters expected takt time for skeleton crew
+- User picks: day shift, night shift, or both
+- Any day configurable as full or skeleton
+- 6th day (Saturday) — user chooses full or skeleton
 
 ---
 
-### 2.6 Additional Items (from Original Implementation Plan)
+## 5. Technical Architecture Considerations
 
-These were in the original plan but not yet implemented. **Updated Feb 13, 2026:** Items reclassified per product owner direction.
+### 5.1 Multi-Department Data Model
+The biggest architectural change is making everything department-aware:
+- **DES Engine:** Parameterized by department config (machines, takt times, stations, priorities)
+- **Parsers:** Department-tagged input data (or separate parsers per department)
+- **Storage:** Department-scoped GCS paths
+- **UI:** Department selector in nav, all views filtered by active department
+- **Config:** Per-department settings (shift patterns, machine counts, takt times)
 
-#### Moved to MVP 1.x (will be completed before MVP 2.0)
-
-| Item | Original Phase | MVP 1.x Priority |
-|------|---------------|-------------------|
-| Rubber Grouping Optimization (changeover minimization) | Phase 3 | LOW |
-| Resource Utilization Report | Phase 6 | MEDIUM |
-| Promise Date Risk Alert Report | Phase 6 | MEDIUM |
-| Core Shortage Alert Report | Phase 6 | MEDIUM |
-| Machine Utilization Alert Report | Phase 6 | MEDIUM |
-| Automated Unit Tests | Phase 7 | MEDIUM |
-| Automated Integration Tests | Phase 7 | MEDIUM |
-
-#### Deferred to MVP 3.0
-
-| Item | Original Phase | Notes |
-|------|---------------|-------|
-| Dual-Cylinder Mode Recommendation | Phase 3 | Very low priority per product owner |
-
----
-
-## 3. MVP 2.0 To-Do List for Product Owner (Sean)
-
-| # | Item | Priority | Notes |
-|---|------|----------|-------|
-| 1 | Provide "Last Move Date" data source for Days Idle column | High | Which SAP report? Column name? |
-| 2 | Define skeleton shift parameters | Medium | How many machines, which stations, which days? |
-| 3 | Define 10-hour shift start/end times | Medium | e.g., 5:00 AM - 3:00 PM? |
-| 4 | Define 6-day week configuration | Medium | Is Saturday the 6th day? Same shifts? |
-| 5 | Define Core Mapping database edit permissions | Medium | What's editable, who approves? |
-| 6 | Define schedule manipulation scope | Medium | Reorder only, or resource reassignment too? |
-| 7 | Confirm user role permission matrix | High | See Section 2.5 table |
-| 8 | Define hot list request workflow | Medium | Form → approval? Notifications? |
-| 9 | Define priority override workflow | Medium | CS requests → Planner approves? |
-| 10 | Define engineering work order workflow | Low | Separate view? Who creates? |
-| 11 | Decide on notification system | Low | Email, in-app, both? |
-| 12 | Decide on user management approach | Medium | Database-backed? Web UI? |
-
----
-
-## 4. Technical Architecture Considerations for MVP 2.0
-
-### 4.1 Database Addition
-MVP 2.0 will likely require a database for:
-- User management (roles, permissions)
+### 5.2 Database Addition
+MVP 2.0 will require a database for:
 - Core Mapping storage (editable)
-- Schedule history and versions
-- Feedback and request tracking
+- Quote management (lifecycle, capacity holds)
+- User management (if RBAC moves to 2.0 scope)
 - Audit logging
 
-**Options:**
-- SQLite (simple, no server needed, good for small teams)
+**Options (decision deferred):**
+- SQLite (simple, no server needed)
 - PostgreSQL via Cloud SQL (scalable, managed, adds cost)
-- GCS JSON files (lightweight, no database server, limited querying)
+- GCS JSON files (lightweight, limited querying)
 
-### 4.2 Frontend Evolution
-The current server-rendered Jinja2 + jQuery approach may become limiting with:
-- Drag-and-drop schedule manipulation
-- Complex multi-option simulation UI
-- Real-time notification system
-- Editable database tables
+### 5.3 Quote Capacity Model
+Quotes introduce "soft" capacity reservations:
+- The scheduler must account for held capacity when estimating delivery dates
+- Expired quotes must release capacity (checked on schedule generation or via background job)
+- Need to prevent overbooking: total real orders + active quote holds ≤ capacity
 
-**Options:**
-- Continue with jQuery + enhanced DataTables (simplest, most incremental)
-- Add Vue.js or React for interactive components only (hybrid approach)
-- Full frontend rewrite to React/Vue (most capable, highest effort)
+### 5.4 Customer Report Generation
+- PDF generation: WeasyPrint, ReportLab, or wkhtmltopdf
+- Excel generation: existing openpyxl infrastructure
+- Customer data filtering: strict isolation — never leak other customers' data
+- Branding: configurable header/logo for customer-facing documents
 
-### 4.3 API Evolution
-Current API is minimal. MVP 2.0 will need:
-- RESTful endpoints for CRUD operations on Core Mapping
-- WebSocket or polling for notifications
-- Role-based API authorization middleware
-- Pagination for large datasets
+### 5.5 Frontend Evolution
+The current Jinja2 + jQuery stack can handle most MVP 2.0 features:
+- Department selector: simple nav dropdown
+- Drag-drop: SortableJS library
+- Quote management: standard CRUD forms
+- Customer reports: server-side generation + download
+
+A full frontend framework rewrite is not needed at this stage.
 
 ---
 
-## 5. Estimated Timeline
+## 6. Items Deferred Beyond MVP 2.0
 
-| Phase | Duration | Content |
-|-------|----------|---------|
-| Planning & Design | 2-3 weeks | Finalize requirements, answer clarifying questions, design architecture |
-| User Roles & Auth | 1-2 weeks | RBAC system, user management UI |
-| Extended Simulations | 2-3 weeks | 6-day week, 10/12hr shifts, skeleton shifts |
-| Core Mapping Database | 2-3 weeks | Database setup, editor UI, migration |
-| Days Idle & New Reports | 1 week | New columns, alert reports |
-| Schedule Manipulation GUI | 3-4 weeks | Drag-drop, manual overrides, re-simulation |
-| Testing & Refinement | 2-3 weeks | UAT, bug fixes, performance |
-
-**Total Estimated:** 13-19 weeks (can be compressed with parallel work)
+| Item | Target | Notes |
+|------|--------|-------|
+| Dual-Cylinder Mode Recommendation | MVP 3.0+ | Very low priority |
+| Live SAP data integration | MVP 3.0+ | Requires SAP API access |
+| Customer self-service portal | MVP 3.0+ | Customers view their own reports online |
 
 ---
 

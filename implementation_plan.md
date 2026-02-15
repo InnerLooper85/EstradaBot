@@ -2,7 +2,7 @@
 
 **Last Updated:** February 15, 2026
 **Current Product Version:** MVP 1.7
-**Next Milestone:** MVP 2.0
+**Next Milestone:** MVP 1.8 (then MVP 2.0)
 
 > Full original plan (with detailed phase specs and code examples) archived to `archive/implementation_plan_v1.md`.
 
@@ -39,25 +39,30 @@
 
 ---
 
-## Open Items (Pre-MVP 2.0)
+## MVP 1.x Backlog
 
-| Item | Priority | Status |
-|------|----------|--------|
-| Rubber grouping optimization (changeover minimization) | LOW | Not started |
-| Resource utilization report | MEDIUM | Not started |
-| Automated unit tests (pytest) | MEDIUM | Not started |
-| Automated integration tests | MEDIUM | Not started |
+Items moved from the original MVP 2.0 plan to 1.x during roadmap replanning (Feb 15, 2026):
+
+| Item | Priority | Status | Notes |
+|------|----------|--------|-------|
+| Resource utilization report | MEDIUM | Not started | MVP 1.8 target |
+| Role name normalization | MEDIUM | Not started | Fix `customer_service` vs `customerservice` |
+| Extended simulation (6-day, skeleton shifts) | HIGH | Not started | Skeleton = takt time adjustment |
+| RBAC / user management | MEDIUM | Not started | Role matrix deferred |
+| Core Mapping: read-only web view | MEDIUM | Not started | Precursor to 2.0 editable database |
+| Days Idle column | MEDIUM | Not started | From Shop Dispatch "Elapsed Days"; 9999→0 |
+| Basic schedule reorder | MEDIUM | Not started | Simple priority adjustment |
+| Rubber grouping optimization | LOW | Not started | Changeover minimization |
+| Automated unit tests (pytest) | MEDIUM | Not started | |
+| Automated integration tests | MEDIUM | Not started | |
 
 ---
 
 ## MVP 2.0 Planning
 
-See `MVP_2.0_Planning.md` for full details. Key features:
-- Days Idle column (needs "Last Move Date" data source)
-- Extended simulation options (6-day week, 10/12hr shifts, skeleton shifts)
-- Core Mapping database (replace Excel upload)
-- GUI-based schedule manipulation (drag-drop)
-- Full RBAC with user management UI
-- Priority customer override
+See `MVP_2.0_Planning.md` for full details. **Scope redefined Feb 15, 2026.** Key features:
 
-See `planning/` directory for phase-based planning structure (when active).
+1. **Rotors product line** — second department with own staffing, machines, scheduling logic
+2. **Customer-facing reports & quoting system** — customer reports, quotes with temporary capacity holds
+3. **Full schedule manipulation GUI** — drag-drop reorder, resource reassignment
+4. **Core Mapping editable database** — replace Excel upload with web editor

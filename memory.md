@@ -92,6 +92,39 @@ Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
 
 ---
 
+## Roadmap Decisions — Feb 15, 2026
+
+**Status:** EXECUTED (MBP session complete)
+
+### MVP 1.x Backlog (moved from old MVP 2.0)
+
+| Item | Target | Priority |
+|------|--------|----------|
+| Resource utilization report | MVP 1.8 | MEDIUM |
+| Role name normalization | Next 1.x | MEDIUM |
+| Extended simulation (6-day, skeleton shifts) | 1.x | HIGH |
+| RBAC / user management | 1.x | MEDIUM |
+| Core Mapping: read-only web view | 1.x | MEDIUM |
+| Days Idle column | 1.x | MEDIUM |
+| Basic schedule reorder | 1.x | MEDIUM |
+| Rubber grouping optimization | 1.x backlog | LOW |
+| Tests & alert reports — doc cleanup only | Next 1.x | LOW |
+
+### MVP 2.0 — New Scope
+
+MVP 2.0 is now defined as **two major features**:
+
+1. **Rotors product line** — second department with own staffing, machines, scheduling logic. Separate department, shared UI framework.
+2. **Customer-facing reports & quoting system** — sales/CS generate customer reports, create quotes that place temporary holds on production slots. Held slots released on quote expiry.
+
+Plus carryover items:
+- Full schedule manipulation GUI (drag-drop + resource reassignment)
+- Core Mapping: editable database
+
+See `MVP_2.0_Planning.md` for full details.
+
+---
+
 ## Session Tips
 
 - Always run session startup check per CLAUDE.md

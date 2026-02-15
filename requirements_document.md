@@ -1,22 +1,48 @@
 # Stator Production Scheduling Application - Requirements Document
 
-**Document Version:** 1.1
+**Document Version:** 1.2
 **Date:** January 31, 2026
-**Last Updated:** February 4, 2026
+**Last Updated:** February 15, 2026
 **Project Owner:** Manufacturing Planning Team
 
 ---
 
-## Implementation Status (as of February 4, 2026)
+## Implementation Status (as of February 15, 2026)
 
-> This requirements document describes the original desired functionality. The application is now **live at https://www.estradabot.biz** deployed on Google Cloud Run with Google Cloud Storage for persistent file storage.
+> This requirements document describes the original desired functionality for the **Stators** production line. The application is now **live at https://www.estradabot.biz** (MVP 1.7) deployed on Google Cloud Run with Google Cloud Storage for persistent file storage.
 >
 > **Key implementation decisions that differ from this document:**
 > - **Tech stack:** Uses Python Flask + Jinja2 + Bootstrap 5 (not React.js + Node.js as some sections imply)
 > - **File storage:** Uses Google Cloud Storage bucket instead of local filesystem monitoring
 > - **Core Mapping updates:** Admin re-uploads via web UI (no auto-reload file watcher)
 > - **Database:** No database; uses GCS for file persistence and JSON state storage
-> - **Still pending:** Rubber grouping optimization, dual-cylinder mode, resource utilization reports, alert reports, QN integration, automated tests
+>
+> **Implemented beyond original spec (MVP 1.1–1.7):**
+> - 4/5-day schedule toggle with 3-scenario planner comparison (4d/10h, 4d/12h, 5d/12h)
+> - Special Requests page with Mode A/B, impact preview, approval queue
+> - Order Holds system, Special Instructions column (from DCP Report)
+> - Notification bell, Alert reports (Promise Date Risk, Core Shortage, Machine Utilization, Late Order Summary)
+> - Mfg Eng Review page, DCP Report parser, Feedback status tracking
+> - Planner workflow: scenario simulation, comparison, base schedule selection, publish flow
+>
+> **Still pending (MVP 1.x backlog):**
+> - Rubber grouping optimization (LOW)
+> - Resource utilization report (MEDIUM — MVP 1.8 target)
+> - Extended simulation: 6-day weeks, skeleton shifts (HIGH)
+> - RBAC / user management (MEDIUM)
+> - Core Mapping read-only web view (MEDIUM)
+> - Days Idle column (MEDIUM)
+> - Basic schedule reorder (MEDIUM)
+> - Automated tests (MEDIUM)
+> - Dual-cylinder mode recommendation (deferred to MVP 3.0+)
+> - QN integration (deferred — no data source yet)
+>
+> **MVP 2.0 scope (redefined Feb 15, 2026):**
+> - Rotors product line (second department)
+> - Customer-facing reports & quoting system
+> - Full schedule manipulation GUI
+> - Core Mapping editable database
+> - See `MVP_2.0_Planning.md` for details
 
 ---
 
@@ -796,26 +822,29 @@ Display:
 
 ---
 
-## 14. Future Enhancements (Not Current Scope)
+## 14. Future Enhancements (Beyond MVP 1.x)
 
-### 14.1 Phase 2 Features
+> **Note:** The project roadmap was replanned on Feb 15, 2026. See `MVP_2.0_Planning.md` for the current plan. This section is kept for historical reference and long-term vision.
+
+### 14.1 MVP 2.0 (Planned)
+- **Rotors product line** — second manufacturing department with own staffing, machines, scheduling logic
+- **Customer-facing reports & quoting system** — customer reports, quotes with temporary production slot holds
+- **Full schedule manipulation GUI** — drag-drop reorder, resource reassignment, manual overrides
+- **Core Mapping editable database** — replace Excel upload with web editor
+
+### 14.2 MVP 3.0+ (Deferred)
+- Dual-cylinder mode recommendation
 - Integration with SAP for automatic data pull
 - Real-time shop floor data integration
-- Automatic Basic Finish Date updates in SAP
-- Mobile app for operators
+- Customer self-service portal
 - Quality Notification integration (QN report)
-
-### 14.2 Phase 3 Features
-- Predictive maintenance scheduling
-- Material resource planning (rubber inventory)
-- Cost optimization alongside time optimization
-- Machine learning for time estimation
-- Advanced analytics and dashboards
 
 ### 14.3 Long-term Vision
 - Autonomous scheduling (minimal human intervention)
 - IoT integration for real-time machine status
-- Customer portal for delivery date transparency
+- Predictive maintenance scheduling
+- Material resource planning (rubber inventory)
+- Cost optimization alongside time optimization
 - Supply chain integration (vendor coordination)
 
 ---
