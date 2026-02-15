@@ -79,6 +79,62 @@ When aborted:
 
 ---
 
+## Deglazing Protocol
+
+When reviewing an existing plan or planning document, the Deglazing Protocol provides a structured way to recover what's still valid, identify what's changed, surface decisions that need to be made, and produce a clean updated version — like deglazing a pan to incorporate the fond into a new sauce.
+
+### Entering the Deglazing Protocol
+
+**Trigger phrases (any of these):**
+- "Initiate Deglazing Protocol"
+- "Deglaze"
+- "Deglaze [document name]"
+
+### What Claude Does
+
+When the Deglazing Protocol is initiated:
+
+1. **Identify the target document.** If not specified, ask which plan to review. Common targets:
+   - `MVP_2.0_Planning.md`
+   - `planning/roadmap.md`
+   - A specific phase file in `planning/`
+   - `implementation_plan.md`
+
+2. **Read the document and produce a Deglaze Report** with these sections:
+
+   **STILL VALID** — Items that remain accurate and don't need changes. List briefly.
+
+   **STALE / OUTDATED** — Items that reference old state, completed work, or superseded decisions. For each: what it says now, what it should say (or whether to remove it).
+
+   **OPEN QUESTIONS** — Decisions that still need Sean's input. For each: the question, why it matters, and what's blocked until it's answered. Number these for easy reference.
+
+   **NEW CONTEXT** — Things that have changed since the document was written that affect the plan. New features built, bugs discovered, decisions made in later sessions, etc.
+
+   **PROPOSED UPDATES** — Specific edits to make, grouped by section. These are proposals, not actions — wait for Sean's approval.
+
+3. **Present the report and wait.** Do NOT edit the document yet. The report is a conversation starter, not a go signal.
+
+### After the Report
+
+Sean will review and respond. Common patterns:
+- "Approve all" or "Looks good, make the changes" → Apply all proposed updates
+- "Approve except #3 and #7" → Apply all except those items, discuss the exceptions
+- Inline corrections → Incorporate Sean's edits and apply
+- "Let's discuss [topic]" → Switch to interactive discussion on that topic, then return to the report
+
+### Combining with MBP
+
+If Sean wants to add new requirements during a Deglaze session, he can initiate MBP. The Deglazing Protocol pauses, MBP collects new items, and when MBP completes (go signal), the new items are incorporated into the Deglaze report as additions before applying updates.
+
+### Rules
+
+- **Never edit the target document before presenting the report.** The report is for review, not a fait accompli.
+- **Keep the report scannable.** Use bullet points, not paragraphs. Sean should be able to approve/reject individual items quickly.
+- **Number open questions consistently.** Use `DG-Q1`, `DG-Q2`, etc. so Sean can reference them easily.
+- **Track what was approved.** After applying changes, update `planning/state.md` with a session log entry noting what was deglazed and what changed.
+
+---
+
 ## Project Overview
 
 **EstradaBot** is a discrete event simulation (DES) based production scheduling web application for stator manufacturing. It is deployed on Google Cloud Run with persistent storage via Google Cloud Storage.

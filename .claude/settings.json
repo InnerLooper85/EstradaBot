@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -qE 'git (commit|add)'; then staged=$(cd /home/user/EstradaBot && git diff --cached --name-only 2>/dev/null); if echo \"$staged\" | grep -qE '^\\.env$|^env\\.yaml$|credentials|secret.*\\.json'; then echo 'BLOCKED: Sensitive file detected in staging area. Files matched: '$(echo \"$staged\" | grep -E '^\\.env$|^env\\.yaml$|credentials|secret.*\\.json'); exit 2; fi; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -6,7 +6,8 @@ data/
 
 # IDE and editor settings
 .obsidian/
-.claude/
+# Claude Code — track commands and project settings, ignore local overrides
+.claude/settings.local.json
 .vscode/
 *.swp
 *.swo
