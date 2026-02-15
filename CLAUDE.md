@@ -56,7 +56,10 @@ When MBP is initiated:
 When the go signal is given:
 
 1. **Present a consolidated briefing** — a single numbered summary of everything collected, grouped logically. This is a quick sanity check, not a blocker.
-2. **Then execute immediately.** Full speed, autonomous, parallelize where possible, minimize questions. Only pause for genuinely destructive or irreversible actions.
+2. **Offer to deglaze.** End the briefing with: *"Want to deglaze before I execute?"* Sean can respond:
+   - "No, go" / "Execute" / "Cook the Cavendish" → Proceed to step 3 immediately
+   - "Yes" / "Deglaze the pan" → Run the Deglazing Protocol on the MBP collection (see below), then return here after review
+3. **Then execute immediately.** Full speed, autonomous, parallelize where possible, minimize questions. Only pause for genuinely destructive or irreversible actions.
 
 ### Aborting MBP
 
@@ -81,7 +84,9 @@ When aborted:
 
 ## Deglazing Protocol
 
-When reviewing an existing plan or planning document, the Deglazing Protocol provides a structured way to recover what's still valid, identify what's changed, surface decisions that need to be made, and produce a clean updated version — like deglazing a pan to incorporate the fond into a new sauce.
+A critical review protocol. Like deglazing a pan — recover the fond (what's good), identify what's burnt (bad ideas, stale info), and produce something clean before serving.
+
+The Deglazing Protocol applies a critical eye to **plans, conversations, or MBP collections** before they become code. It asks: are these good ideas? What's missing? What will cause problems?
 
 ### Entering the Deglazing Protocol
 
@@ -89,49 +94,67 @@ When reviewing an existing plan or planning document, the Deglazing Protocol pro
 - "Initiate Deglazing Protocol"
 - "Deglaze"
 - "Deglaze [document name]"
+- "Deglaze the pan"
+- "Let's deglaze what we just [created/talked about/collected]"
+
+### What Can Be Deglazed
+
+The protocol works on three target types:
+
+1. **A document** — a planning file, roadmap, or spec (e.g., "Deglaze MVP_2.0_Planning.md")
+2. **The current conversation** — ideas discussed or decisions made in this session (e.g., "Let's deglaze what we just talked about")
+3. **An MBP collection** — the batch of requirements collected during MBP, reviewed before the go signal executes (e.g., "Yes, deglaze the pan" when offered at the end of an MBP briefing)
+
+If the target is unclear, ask.
 
 ### What Claude Does
 
 When the Deglazing Protocol is initiated:
 
-1. **Identify the target document.** If not specified, ask which plan to review. Common targets:
-   - `MVP_2.0_Planning.md`
-   - `planning/roadmap.md`
-   - A specific phase file in `planning/`
-   - `implementation_plan.md`
+1. **Identify the target** (document, conversation, or MBP collection).
 
-2. **Read the document and produce a Deglaze Report** with these sections:
+2. **Review the target and produce a Deglaze Report** with these sections:
 
-   **STILL VALID** — Items that remain accurate and don't need changes. List briefly.
+   **THE FOND (Still Good)** — Ideas, items, or decisions that are solid. List briefly so Sean knows what's NOT being questioned.
 
-   **STALE / OUTDATED** — Items that reference old state, completed work, or superseded decisions. For each: what it says now, what it should say (or whether to remove it).
+   **BURNT BITS (Problems)** — Items that are bad ideas, stale, over-engineered, risky, or will cause quality problems. For each: what the issue is and why it's a problem. Be direct — this is the whole point of deglazing.
 
-   **OPEN QUESTIONS** — Decisions that still need Sean's input. For each: the question, why it matters, and what's blocked until it's answered. Number these for easy reference.
+   **MISSING INGREDIENTS** — Things that should be there but aren't. Missing edge cases, untested assumptions, gaps in the plan, dependencies nobody mentioned.
 
-   **NEW CONTEXT** — Things that have changed since the document was written that affect the plan. New features built, bugs discovered, decisions made in later sessions, etc.
+   **OPEN QUESTIONS** — Decisions that need Sean's input before proceeding. Number these `DG-Q1`, `DG-Q2`, etc. For each: the question, why it matters, what's blocked.
 
-   **PROPOSED UPDATES** — Specific edits to make, grouped by section. These are proposals, not actions — wait for Sean's approval.
+   **RECOMMENDATIONS** — Specific changes to make, ordered by importance. For documents: proposed edits. For conversations/MBP: items to drop, modify, add, or reorder. These are proposals, not actions.
 
-3. **Present the report and wait.** Do NOT edit the document yet. The report is a conversation starter, not a go signal.
+3. **Present the report and wait.** Do NOT edit documents or execute anything yet.
 
 ### After the Report
 
 Sean will review and respond. Common patterns:
-- "Approve all" or "Looks good, make the changes" → Apply all proposed updates
-- "Approve except #3 and #7" → Apply all except those items, discuss the exceptions
+- "Approve all" or "Looks good, make the changes" → Apply all recommendations
+- "Approve except #3 and #7" → Apply all except those, discuss the exceptions
 - Inline corrections → Incorporate Sean's edits and apply
-- "Let's discuss [topic]" → Switch to interactive discussion on that topic, then return to the report
+- "Let's discuss [topic]" → Switch to discussion, then return to the report
+- "Drop items 2 and 5, then go" (after MBP deglaze) → Remove those from the plan, then execute the rest
 
-### Combining with MBP
+### MBP Integration
 
-If Sean wants to add new requirements during a Deglaze session, he can initiate MBP. The Deglazing Protocol pauses, MBP collects new items, and when MBP completes (go signal), the new items are incorporated into the Deglaze report as additions before applying updates.
+The Deglazing Protocol is the natural quality gate between MBP collection and MBP execution:
+
+1. MBP collects requirements → go signal given
+2. Claude presents consolidated briefing
+3. Claude offers: *"Want to deglaze before I execute?"*
+4. If yes → Deglaze Report on the collected items. Focus on: Are these worth building? Any bad ideas? Missing anything? Ordering problems?
+5. Sean approves/modifies → Claude executes the reviewed set
+
+If Sean initiates MBP *during* a Deglaze session (wants to add new requirements), the Deglazing Protocol pauses. MBP collects new items. When MBP completes, the new items are incorporated into the Deglaze report before applying.
 
 ### Rules
 
-- **Never edit the target document before presenting the report.** The report is for review, not a fait accompli.
-- **Keep the report scannable.** Use bullet points, not paragraphs. Sean should be able to approve/reject individual items quickly.
-- **Number open questions consistently.** Use `DG-Q1`, `DG-Q2`, etc. so Sean can reference them easily.
-- **Track what was approved.** After applying changes, update `planning/state.md` with a session log entry noting what was deglazed and what changed.
+- **Never edit or execute before presenting the report.** The report is a conversation starter, not a fait accompli.
+- **Be genuinely critical.** The value of deglazing is catching problems early. Don't rubber-stamp. If something is a bad idea, say so and say why.
+- **Keep the report scannable.** Bullet points, not paragraphs. Sean should be able to approve/reject individual items quickly.
+- **Number open questions consistently.** `DG-Q1`, `DG-Q2`, etc. so Sean can reference them easily.
+- **Track what was approved.** After applying changes to a document, update `planning/state.md` with a session log entry noting what was deglazed and what changed.
 
 ---
 
