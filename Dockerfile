@@ -29,5 +29,5 @@ ENV PORT=8080
 # Expose port
 EXPOSE 8080
 
-# Run with gunicorn
-CMD ["sh", "-c", "gunicorn --bind :$PORT --workers 2 --threads 4 --timeout 120 backend.app:app"]
+# Run with gunicorn (1 worker required — planner workflow uses in-memory state)
+CMD ["sh", "-c", "gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 120 backend.app:app"]
