@@ -208,15 +208,21 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.8.1
+**Current Version:** MVP 1.8.2
+
+### Version Numbering: `X.Y.Z`
+
+- **X** — Major release. Only bumped when the product owner declares a new major milestone.
+- **Y** — Feature release. Bumped for new features or significant enhancements (set by the project stage last implemented, e.g., MVP 1.8 = the 8th feature release).
+- **Z** — Patch/bugfix. Iterated for each bugfix or minor correction within the current feature release (e.g., 1.8.1, 1.8.2, ...). Resets to 0 on a new Y bump.
 
 When merging changes to `master` that will be deployed to production, you MUST:
 
 1. **Increment the version badge** in `backend/templates/base.html`
-   - Find the `<span class="badge bg-info ...>MVP X.Y</span>` in the navbar brand
-   - Bump the version number (e.g., MVP 1.1 → MVP 1.2)
-   - Use minor bumps (1.1 → 1.2) for feature additions and fixes
-   - Use major bumps (1.x → 2.0) only when the product owner declares a new major release
+   - Find the `<span class="badge bg-info ...>MVP X.Y.Z</span>` in the navbar brand
+   - Bump Z (1.8.1 → 1.8.2) for bugfixes and minor corrections
+   - Bump Y (1.8 → 1.9) for feature additions, reset Z to 0
+   - Bump X (1.x → 2.0) only when the product owner declares a new major release
 
 2. **Update the Update Log page** in `backend/templates/update_log.html`
    - Add a new version section at the top of the "Version History" card (above the previous version)
