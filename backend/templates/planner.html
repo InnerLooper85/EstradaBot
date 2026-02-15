@@ -156,12 +156,20 @@
             </table>
         </div>
 
-        <div class="mt-3 d-flex gap-2">
+        <div class="mt-3 d-flex gap-2" id="requestActionButtons">
             <button class="btn btn-success btn-sm" onclick="approveSelected()">
                 <i class="bi bi-check-circle"></i> Approve Selected
             </button>
             <button class="btn btn-danger btn-sm" onclick="rejectSelected()">
                 <i class="bi bi-x-circle"></i> Reject Selected
+            </button>
+        </div>
+
+        <!-- Shown when no pending requests exist -->
+        <div id="noRequestsContinue" class="text-center py-3" style="display: none;">
+            <p class="text-muted mb-2">No special requests to review. You can proceed to generate the final schedule.</p>
+            <button class="btn btn-primary" onclick="simulateWithRequests()">
+                <i class="bi bi-arrow-right-circle"></i> Continue to Generate Final
             </button>
         </div>
     </div>
@@ -511,9 +519,14 @@
         tbody.empty();
 
         if (requests.length === 0) {
-            tbody.append('<tr><td colspan="8" class="text-center text-muted">No pending special requests. Upload a Hot List file or submit a request below.</td></tr>');
+            tbody.append('<tr><td colspan="8" class="text-center text-muted">No pending special requests.</td></tr>');
+            $('#requestActionButtons').hide();
+            $('#noRequestsContinue').show();
             return;
         }
+
+        $('#requestActionButtons').show();
+        $('#noRequestsContinue').hide();
 
         requests.forEach(req => {
             const submitted = req.submitted_at ? new Date(req.submitted_at).toLocaleString() : '-';
