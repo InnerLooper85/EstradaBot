@@ -2,7 +2,7 @@
 
 **Last Updated:** February 15, 2026
 **Current Product Version:** MVP 1.7
-**Next Milestone:** MVP 1.8 (then MVP 2.0)
+**Next Milestone:** MVP 1.8 → 1.9 → 1.10 → MVP 2.0
 
 > Full original plan (with detailed phase specs and code examples) archived to `archive/implementation_plan_v1.md`.
 
@@ -39,22 +39,38 @@
 
 ---
 
-## MVP 1.x Backlog
+## MVP 1.x Release Plan
 
-Items moved from the original MVP 2.0 plan to 1.x during roadmap replanning (Feb 15, 2026):
+Agreed Feb 15, 2026. Items moved from old MVP 2.0 plan, split into 3 focused releases.
 
-| Item | Priority | Status | Notes |
-|------|----------|--------|-------|
-| Resource utilization report | MEDIUM | Not started | MVP 1.8 target |
-| Role name normalization | MEDIUM | Not started | Fix `customer_service` vs `customerservice` |
-| Extended simulation (6-day, skeleton shifts) | HIGH | Not started | Skeleton = takt time adjustment |
-| RBAC / user management | MEDIUM | Not started | Role matrix deferred |
-| Core Mapping: read-only web view | MEDIUM | Not started | Precursor to 2.0 editable database |
-| Days Idle column | MEDIUM | Not started | From Shop Dispatch "Elapsed Days"; 9999→0 |
-| Basic schedule reorder | MEDIUM | Not started | Simple priority adjustment |
-| Rubber grouping optimization | LOW | Not started | Changeover minimization |
-| Automated unit tests (pytest) | MEDIUM | Not started | |
-| Automated integration tests | MEDIUM | Not started | |
+### MVP 1.8 — Quick wins + reporting
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Role name normalization | Not started | Fix `customer_service` vs `customerservice` — tech debt cleanup before RBAC |
+| Resource utilization report | Not started | Per-operation/machine utilization metrics |
+| Days Idle column | Not started | From Shop Dispatch "Elapsed Days"; 9999→0 rule |
+
+### MVP 1.9 — Simulation power
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Extended simulation (6-day, skeleton shifts) | Not started | Skeleton = takt time adjustment (all machines, fewer staff = longer takt). User configures per-day: full or skeleton, day/night/both. Saturday as optional 6th day. |
+
+### MVP 1.10 — Access control & schedule control
+
+| Item | Status | Notes |
+|------|--------|-------|
+| RBAC / user management | Not started | Role matrix deferred — basic role enforcement first |
+| Core Mapping: read-only web view | Not started | Precursor to 2.0 editable database |
+| Basic schedule reorder | Not started | Simple manual priority adjustment |
+
+### Ongoing (woven into each release)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Automated tests (pytest) | Not started | Add coverage with each release |
+| Rubber grouping optimization | Not started | LOW — slot in when convenient |
 
 ---
 
