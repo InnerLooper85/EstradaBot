@@ -96,19 +96,12 @@ Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
 
 **Status:** EXECUTED (MBP session complete)
 
-### MVP 1.x Backlog (moved from old MVP 2.0)
+### MVP 1.x Release Plan (agreed Feb 15)
 
-| Item | Target | Priority |
-|------|--------|----------|
-| Resource utilization report | MVP 1.8 | MEDIUM |
-| Role name normalization | Next 1.x | MEDIUM |
-| Extended simulation (6-day, skeleton shifts) | 1.x | HIGH |
-| RBAC / user management | 1.x | MEDIUM |
-| Core Mapping: read-only web view | 1.x | MEDIUM |
-| Days Idle column | 1.x | MEDIUM |
-| Basic schedule reorder | 1.x | MEDIUM |
-| Rubber grouping optimization | 1.x backlog | LOW |
-| Tests & alert reports — doc cleanup only | Next 1.x | LOW |
+- **1.8:** Role name normalization, resource utilization report, Days Idle column
+- **1.9:** Extended simulation (6-day weeks, skeleton shifts)
+- **1.10:** RBAC / user management, Core Mapping read-only view, basic schedule reorder
+- **Ongoing:** Automated tests (with each release), rubber grouping (when convenient)
 
 ### MVP 2.0 — New Scope
 
