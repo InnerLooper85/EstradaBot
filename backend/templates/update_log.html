@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.8.2</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.9.0</span>
 </div>
 
 <!-- Feedback Form -->
@@ -97,6 +97,32 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.9.0 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.9.0</span>
+                <small class="text-muted ms-2">February 2026 - Simulation Power</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Extended Simulation &mdash; 6-Day Weeks &amp; Skeleton Shifts:</strong> Added per-day shift configuration supporting full and skeleton modes. Skeleton mode keeps all machines available but adjusts takt time to reflect reduced staffing.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>4th Standard Scenario &mdash; 6 Days x 12 Hours:</strong> New preset scenario card runs Mon&ndash;Sat with full 12-hour day + night shifts, giving planners a quick view of maximum capacity.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Custom Configuration Panel:</strong> Planners can now build a fully custom schedule by configuring each day (Mon&ndash;Sat) independently: working yes/no, full or skeleton mode, day/night/both shifts, and per-day takt time (1&ndash;120 min). The result appears as a selectable scenario card alongside the standard presets.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>CURE/QUENCH Continuous on Skeleton Days:</strong> Continuous operations (CURE, QUENCH) run as full working days on all scheduled days regardless of skeleton/full mode &mdash; only takt time and active shifts change.
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.8.2 -->
         <div class="mb-4">
             <h5>

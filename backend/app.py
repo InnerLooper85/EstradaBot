@@ -24,7 +24,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data_loader import DataLoader
-from algorithms.des_scheduler import DESScheduler
+from algorithms.des_scheduler import DESScheduler, DayShiftConfig
 from exporters.excel_exporter import (
     export_master_schedule,
     export_blast_schedule,
@@ -603,7 +603,7 @@ def upload_file():
 
 
 def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
-                       shift_hours=12, skip_hot_list=False):
+                       shift_hours=12, skip_hot_list=False, day_configs=None):
     """
     Run the scheduler for a given working_days and shift_hours configuration.
     Returns dict with orders, baseline_orders, reports, stats, serialized_orders.
@@ -616,6 +616,7 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
         timestamp: Timestamp string for filenames
         shift_hours: 10 or 12 hour shifts. Defaults to 12.
         skip_hot_list: If True, only generate baseline schedule (no hot list processing)
+        day_configs: Optional per-day DayShiftConfig dict for advanced mode.
     """
     from datetime import timedelta
     AT_RISK_BUFFER_DAYS = 2
@@ -626,7 +627,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
         core_mapping=loader.core_mapping,
         core_inventory=loader.core_inventory,
         working_days=working_days,
-        shift_hours=shift_hours
+        shift_hours=shift_hours,
+        day_configs=day_configs
     )
 
     # Run baseline schedule (without hot list)
@@ -641,7 +643,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=working_days,
-            shift_hours=shift_hours
+            shift_hours=shift_hours,
+            day_configs=day_configs
         )
         scheduled_orders = scheduler_with_hot.schedule_orders(
             hot_list_entries=loader.hot_list_entries
@@ -1381,6 +1384,7 @@ SCENARIO_CONFIGS = {
     '4day_10h': {'working_days': [0, 1, 2, 3], 'shift_hours': 10, 'label': '4 Days x 10 Hours'},
     '4day_12h': {'working_days': [0, 1, 2, 3], 'shift_hours': 12, 'label': '4 Days x 12 Hours'},
     '5day_12h': {'working_days': [0, 1, 2, 3, 4], 'shift_hours': 12, 'label': '5 Days x 12 Hours'},
+    '6day_12h': {'working_days': [0, 1, 2, 3, 4, 5], 'shift_hours': 12, 'label': '6 Days x 12 Hours'},
 }
 
 
@@ -1406,8 +1410,8 @@ def _compute_stats_from_serialized(serialized_orders):
 @login_required
 def simulate_scenarios():
     """
-    Step 2: Simulate base schedule across 3 scenarios.
-    Runs the DES engine 3 times (4d x 10h, 4d x 12h, 5d x 12h) WITHOUT hot list.
+    Step 2: Simulate base schedule across standard scenarios.
+    Runs the DES engine for each preset (4dx10h, 4dx12h, 5dx12h, 6dx12h) WITHOUT hot list.
     Returns comparison metrics for each scenario.
     """
     global planner_state
@@ -1498,8 +1502,8 @@ def simulate_scenarios():
 @login_required
 def set_base_schedule():
     """
-    Step 4: Planner selects one of the 3 scenarios as the base schedule.
-    Expects JSON body: { "scenario": "4day_10h" | "4day_12h" | "5day_12h" }
+    Step 3: Planner selects one of the scenarios as the base schedule.
+    Expects JSON body: { "scenario": "4day_10h" | "4day_12h" | "5day_12h" | "6day_12h" | "custom" }
     """
     global planner_state
 
@@ -1509,7 +1513,8 @@ def set_base_schedule():
     data = request.get_json()
     scenario_key = data.get('scenario')
 
-    if scenario_key not in SCENARIO_CONFIGS:
+    # Accept standard presets and the custom scenario
+    if scenario_key not in SCENARIO_CONFIGS and scenario_key != 'custom':
         return jsonify({'error': f'Invalid scenario: {scenario_key}'}), 400
 
     if not planner_state.get('scenarios'):
@@ -1528,6 +1533,167 @@ def set_base_schedule():
         'label': scenario['label'],
         'stats': scenario['stats']
     })
+
+
+@app.route('/api/planner/simulate-custom-scenario', methods=['POST'])
+@login_required
+def simulate_custom_scenario():
+    """
+    Run a single custom simulation with per-day shift configuration.
+    Accepts a Mon-Sat grid of per-day configs (full/skeleton, day/night/both, takt).
+    Returns one scenario result that can be selected as the base schedule.
+
+    Expected JSON body:
+    {
+        "shift_hours": 12,
+        "days": {
+            "0": {"working": true, "shift_mode": "full", "active_shifts": "both", "takt": 30},
+            "1": {"working": true, "shift_mode": "skeleton", "active_shifts": "day", "takt": 60},
+            ...
+        }
+    }
+    """
+    global planner_state
+
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can simulate schedules.'}), 403
+
+    data = request.get_json()
+    if not data or 'days' not in data:
+        return jsonify({'error': 'Missing day configuration.'}), 400
+
+    shift_hours = data.get('shift_hours', 12)
+    days_raw = data['days']
+
+    # Validate and build config
+    working_days = []
+    day_configs = {}
+    errors = []
+
+    for day_str, day_data in days_raw.items():
+        try:
+            weekday = int(day_str)
+        except (ValueError, TypeError):
+            errors.append(f'Invalid day key: {day_str}')
+            continue
+
+        if weekday < 0 or weekday > 5:
+            errors.append(f'Day must be 0-5 (Mon-Sat), got {weekday}')
+            continue
+
+        if not day_data.get('working', False):
+            continue
+
+        working_days.append(weekday)
+
+        takt = day_data.get('takt', 30)
+        if not isinstance(takt, (int, float)) or takt < 1 or takt > 120:
+            errors.append(f'Takt must be 1-120 minutes, got {takt} for day {weekday}')
+            continue
+
+        active_shifts = day_data.get('active_shifts', 'both')
+        shift_mode = day_data.get('shift_mode', 'full')
+
+        # Validate: 10h base disables night-only skeleton
+        if shift_hours == 10 and active_shifts == 'night':
+            errors.append(f'Night-only is not available with 10-hour shifts (day {weekday})')
+            continue
+
+        # Every working day needs at least one shift
+        if active_shifts not in ('day', 'night', 'both'):
+            errors.append(f'Invalid active_shifts: {active_shifts} for day {weekday}')
+            continue
+
+        day_configs[weekday] = DayShiftConfig(
+            shift_mode=shift_mode,
+            active_shifts=active_shifts,
+            takt_time_minutes=int(takt)
+        )
+
+    if not working_days:
+        errors.append('At least one working day is required')
+
+    if errors:
+        return jsonify({'error': 'Validation errors: ' + '; '.join(errors)}), 400
+
+    working_days.sort()
+
+    # Build a descriptive label
+    day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    skeleton_days = [day_names[d] for d in working_days if day_configs.get(d, DayShiftConfig()).shift_mode == 'skeleton']
+    label = f'Custom ({len(working_days)}d x {shift_hours}h'
+    if skeleton_days:
+        label += f', skeleton: {",".join(skeleton_days)}'
+    label += ')'
+
+    try:
+        import tempfile
+        import shutil
+
+        # Reuse existing temp_dir from scenario simulation if available
+        temp_dir = planner_state.get('_temp_dir')
+        loader = planner_state.get('loader')
+
+        if not temp_dir or not loader:
+            # Need to load fresh data
+            temp_dir = tempfile.mkdtemp(prefix='estradabot_custom_')
+            gcs_storage.download_files_for_processing(temp_dir)
+            loader = DataLoader(data_dir=temp_dir)
+            loader.load_all()
+
+            if not loader.orders:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return jsonify({'error': 'No orders loaded. Please upload a Sales Order file.'}), 400
+
+            # Exclude orders on hold
+            order_holds = gcs_storage.load_order_holds()
+            if order_holds:
+                loader.orders = [o for o in loader.orders if o.get('wo_number') not in order_holds]
+
+            planner_state['loader'] = loader
+            planner_state['_temp_dir'] = temp_dir
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        mode_label = 'CUSTOM'
+        print(f"[Planner] Running custom scenario: {label}...")
+
+        result = _run_schedule_mode(
+            loader,
+            working_days,
+            mode_label,
+            temp_dir,
+            timestamp,
+            shift_hours=shift_hours,
+            skip_hot_list=True,
+            day_configs=day_configs
+        )
+
+        scenario_data = {
+            'label': label,
+            'stats': result['stats'],
+            'serialized_orders': result['serialized_orders'],
+            'orders': result['orders'],
+            'baseline_orders': result['baseline_orders'],
+            'reports': result['reports'],
+        }
+
+        # Store in planner state alongside standard scenarios
+        if 'scenarios' not in planner_state or planner_state['scenarios'] is None:
+            planner_state['scenarios'] = {}
+        planner_state['scenarios']['custom'] = scenario_data
+
+        return jsonify({
+            'success': True,
+            'scenario': {
+                'label': label,
+                'stats': result['stats'],
+            }
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 REDLINE_TYPE_LABELS = {
