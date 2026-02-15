@@ -526,7 +526,7 @@
 
                 count.textContent = data.feedback.length;
                 let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr>' +
-                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Status</th><th>Page</th><th>Message</th><th>File</th>' +
+                    '<th>Date</th><th>User</th><th>Category</th><th>Priority</th><th>Status</th><th>Dev</th><th>Page</th><th>Message</th><th>File</th>' +
                     '</tr></thead><tbody>';
 
                 data.feedback.forEach((fb, idx) => {
@@ -577,12 +577,22 @@
                                    </a>`;
                     }
 
+                    const devStatus = fb.dev_status || 'unprocessed';
+                    const devStatusColors = {
+                        'unprocessed': 'bg-secondary',
+                        'ingested': 'bg-info',
+                        'actioned': 'bg-primary',
+                        'closed': 'bg-dark'
+                    };
+                    const devBadge = devStatusColors[devStatus] || 'bg-secondary';
+
                     html += `<tr>
                         <td class="small">${date}</td>
                         <td>${fb.username || '-'}</td>
                         <td><span class="badge ${categoryClass}">${fb.category}</span></td>
                         <td class="${priorityClass}">${fb.priority}</td>
                         <td>${statusCell}</td>
+                        <td><span class="badge ${devBadge}" style="font-size: 0.7rem;">${devStatus}</span></td>
                         <td>${fb.page || '-'}</td>
                         <td>${fb.message.substring(0, 100)}${fb.message.length > 100 ? '...' : ''}</td>
                         <td>${fileCell}</td>

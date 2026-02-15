@@ -1124,6 +1124,7 @@ def submit_feedback():
         'message': message,
         'submitted_at': datetime.now().isoformat(),
         'status': 'New',
+        'dev_status': 'unprocessed',
         'attachment': None
     }
 
@@ -1284,6 +1285,48 @@ def update_feedback_status(index):
     except Exception as e:
         print(f"[ERROR] Failed to update feedback status: {e}")
         return jsonify({'error': 'Failed to update status'}), 500
+
+
+@app.route('/api/feedback/<int:index>/dev-status', methods=['PUT'])
+@login_required
+def update_feedback_dev_status(index):
+    """Update the dev pipeline status of a feedback entry (admin only).
+    Used by the feedback processing pipeline to track ingestion state.
+    """
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    new_status = data.get('dev_status', '').strip() if data else ''
+
+    valid_statuses = ['unprocessed', 'ingested', 'actioned', 'closed']
+    if new_status not in valid_statuses:
+        return jsonify({'error': f'Invalid dev_status. Must be one of: {", ".join(valid_statuses)}'}), 400
+
+    try:
+        feedback = gcs_storage.load_feedback()
+        reversed_idx = len(feedback) - 1 - index
+        if reversed_idx < 0 or reversed_idx >= len(feedback):
+            return jsonify({'error': 'Feedback entry not found'}), 404
+
+        feedback[reversed_idx]['dev_status'] = new_status
+        feedback[reversed_idx]['dev_status_updated_by'] = current_user.username
+        feedback[reversed_idx]['dev_status_updated_at'] = datetime.now().isoformat()
+
+        if gcs_storage.USE_LOCAL_STORAGE:
+            gcs_storage._local_save_json(gcs_storage.FEEDBACK_FILE, feedback)
+        else:
+            bucket = gcs_storage.get_bucket()
+            blob = bucket.blob(gcs_storage.FEEDBACK_FILE)
+            blob.upload_from_string(
+                json.dumps(feedback, default=str),
+                content_type='application/json'
+            )
+
+        return jsonify({'success': True, 'dev_status': new_status})
+    except Exception as e:
+        print(f"[ERROR] Failed to update feedback dev_status: {e}")
+        return jsonify({'error': 'Failed to update dev_status'}), 500
 
 
 @app.route('/api/simulation-data')
