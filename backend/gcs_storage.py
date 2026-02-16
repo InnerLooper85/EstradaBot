@@ -537,6 +537,53 @@ def load_feedback() -> list:
         return []
 
 
+def update_feedback_dev_status(index: int, dev_status: str, updated_by: str = 'pipeline') -> bool:
+    """
+    Update the dev_status of a feedback entry by index.
+
+    Args:
+        index: Index in the feedback list (0-based, storage order)
+        dev_status: New status - 'unprocessed', 'ingested', 'actioned', 'closed'
+        updated_by: Who updated the status (default: 'pipeline')
+
+    Returns:
+        True if updated successfully
+    """
+    valid_statuses = ['unprocessed', 'ingested', 'actioned', 'closed']
+    if dev_status not in valid_statuses:
+        print(f"[Feedback] Invalid dev_status: {dev_status}")
+        return False
+
+    entries = load_feedback()
+    if index < 0 or index >= len(entries):
+        print(f"[Feedback] Index {index} out of range")
+        return False
+
+    entries[index]['dev_status'] = dev_status
+    entries[index]['dev_status_updated_at'] = datetime.now().isoformat()
+    entries[index]['dev_status_updated_by'] = updated_by
+
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(FEEDBACK_FILE, entries)
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to update feedback dev_status: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(FEEDBACK_FILE)
+    try:
+        blob.upload_from_string(
+            json.dumps(entries, default=str),
+            content_type='application/json'
+        )
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to update feedback dev_status: {e}")
+        return False
+
+
 # ============== Special Request Persistence ==============
 
 SPECIAL_REQUESTS_FILE = 'state/special_requests.json'
