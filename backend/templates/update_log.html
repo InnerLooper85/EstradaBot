@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.9.0</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.10.0</span>
 </div>
 
 <!-- Feedback Form -->
@@ -97,6 +97,32 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.10.0 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.10.0</span>
+                <small class="text-muted ms-2">February 2026 - Access Control &amp; Reorder</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>User Management (RBAC):</strong> Admin user management page with add, edit role, reset password, and disable/enable. Users are now persisted to GCS instead of environment variables only. New &ldquo;operator&rdquo; role for shop floor users. All users can change their own password via the navbar dropdown.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Core Mapping View:</strong> New read-only Core Mapping page with Part-to-Core Mapping and Core Inventory tabs. Mismatch detection highlights parts referencing cores not in inventory with a summary count bar.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Schedule Reorder (Drag &amp; Drop):</strong> Planners can now manually reorder the schedule using drag-and-drop (SortableJS). Cross-BLAST movement is allowed. Reorder changes the actual BLAST sequence reflected in Excel exports. Custom ordering is persisted to GCS and a warning is shown if regenerating while a custom order is active.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>Navigation Updates:</strong> Core Mapping link visible to admin/mfgeng/planner. User Management link visible to admin. Sequence column added to schedule table.
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.9.0 -->
         <div class="mb-4">
             <h5>

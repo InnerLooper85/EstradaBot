@@ -24,6 +24,33 @@
     </div>
 </div>
 
+<!-- Reorder Controls (admin/planner only) -->
+{% if can_generate %}
+<div id="reorderControls" class="mb-3" style="display:none;">
+    <div class="d-flex align-items-center">
+        <div class="form-check form-switch me-3">
+            <input class="form-check-input" type="checkbox" id="reorderToggle" onchange="toggleReorderMode()">
+            <label class="form-check-label" for="reorderToggle">Reorder Mode</label>
+        </div>
+        <div id="reorderActions" style="display:none;">
+            <button class="btn btn-sm btn-success me-1" onclick="saveReorder()">
+                <i class="bi bi-check-lg"></i> Save Order
+            </button>
+            <button class="btn btn-sm btn-outline-secondary me-1" onclick="resetReorder()">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+            </button>
+            <span id="reorderStatus" class="text-muted small ms-2"></span>
+        </div>
+        <div id="reorderBadge" style="display:none;">
+            <span class="badge bg-info"><i class="bi bi-arrows-move"></i> Custom Order Active</span>
+            <button class="btn btn-sm btn-outline-danger ms-1" onclick="clearReorder()">
+                <i class="bi bi-x"></i> Clear Custom Order
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Stats Summary -->
 <div id="statsSection" class="row mb-4" style="display: none;">
     <div class="col-md-2">
@@ -101,6 +128,8 @@
             <table id="scheduleTable" class="table table-striped table-hover" style="width:100%">
                 <thead>
                     <tr>
+                        <th class="reorder-col" style="display:none;"></th>
+                        <th>Seq</th>
                         <th>WO#</th>
                         <th>Serial #</th>
                         <th>Part Number</th>
@@ -122,6 +151,8 @@
                 </tbody>
                 <tfoot>
                     <tr>
+                        <th class="reorder-col" style="display:none;"></th>
+                        <th>Seq</th>
                         <th>WO#</th>
                         <th>Serial #</th>
                         <th>Part Number</th>
@@ -154,6 +185,24 @@
     #scheduleTable tfoot th {
         padding: 4px;
     }
+    .drag-handle {
+        cursor: grab;
+        color: #999;
+        font-size: 1.1rem;
+    }
+    .drag-handle:hover {
+        color: #333;
+    }
+    .sortable-ghost {
+        opacity: 0.4;
+        background: #d4edff !important;
+    }
+    .sortable-chosen {
+        background: #e8f4ff !important;
+    }
+    .reorder-active #scheduleTable tbody tr {
+        cursor: grab;
+    }
 </style>
 {% endblock %}
 
@@ -165,10 +214,17 @@
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+<!-- SortableJS for drag-and-drop reorder -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 
 <script>
     let dataTable = null;
     let currentMode = '4day';
+    let reorderMode = false;
+    let sortableInstance = null;
+    let originalOrder = [];  // WO numbers in original order
+    let currentOrders = [];  // Current orders data from API
+    const canReorder = {{ 'true' if can_generate else 'false' }};
 
     $(document).ready(function() {
         loadSchedule();
@@ -176,9 +232,9 @@
 
     function switchMode(mode) {
         currentMode = mode;
-        // Update toggle buttons
         $('#btn4day').toggleClass('active', mode === '4day');
         $('#btn5day').toggleClass('active', mode === '5day');
+        if (reorderMode) toggleReorderMode();  // exit reorder mode on mode switch
         loadSchedule();
     }
 
@@ -198,9 +254,21 @@
                     return;
                 }
 
+                currentOrders = data.orders;
+
                 // Show mode toggle if dual modes are available
                 if (data.has_modes) {
                     $('#modeToggle').show();
+                }
+
+                // Show reorder controls for admin/planner
+                if (canReorder) {
+                    $('#reorderControls').show();
+                    if (data.has_reorder) {
+                        $('#reorderBadge').show();
+                    } else {
+                        $('#reorderBadge').hide();
+                    }
                 }
 
                 // Update stats
@@ -226,10 +294,12 @@
                 // Build table body
                 const tbody = $('#scheduleTableBody');
                 tbody.empty();
+                originalOrder = [];
 
-                data.orders.forEach(order => {
-                    const row = buildOrderRow(order);
+                data.orders.forEach((order, idx) => {
+                    const row = buildOrderRow(order, idx + 1);
                     tbody.append(row);
+                    originalOrder.push(order.wo_number);
                 });
 
                 $('#scheduleTableContainer').show();
@@ -239,16 +309,22 @@
                     dataTable.destroy();
                 }
 
-                // Dropdown columns: Rubber (8), Priority (9), Status (14)
+                // Column indices shifted by 2 (drag handle col + seq col)
+                // Drag handle: 0, Seq: 1, WO: 2, Serial: 3, Part: 4, Desc: 5, Customer: 6,
+                // Core: 7, SM Loc: 8, Special: 9, Rubber: 10, Priority: 11, BLAST: 12,
+                // Completion: 13, Promise: 14, Turnaround: 15, Status: 16
                 const dropdownColumns = {
-                    8: ['XE', 'HR', 'XD', 'XR'],
-                    9: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
-                    14: ['On Time', 'Late', 'At Risk']
+                    10: ['XE', 'HR', 'XD', 'XR'],
+                    11: ['ASAP', 'DATED', 'REWORK', 'NORMAL', 'CAVO'],
+                    16: ['On Time', 'Late', 'At Risk']
                 };
 
                 // Build filter inputs in tfoot before DataTable init
                 $('#scheduleTable tfoot th').each(function(i) {
-                    if (i === 3) {
+                    if (i === 0) {
+                        // Drag handle column - no filter
+                        $(this).html('');
+                    } else if (i === 5) {
                         // Hidden description column - no filter
                         $(this).html('');
                     } else if (dropdownColumns[i]) {
@@ -263,25 +339,27 @@
                 });
 
                 dataTable = $('#scheduleTable').DataTable({
-                    pageLength: 25,
-                    lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                    order: [[10, 'asc']],  // Sort by BLAST date
+                    pageLength: -1,  // Show all for reorder to work
+                    lengthMenu: [[25, 50, 100, -1], [25, 50, 100, "All"]],
+                    order: [],  // Preserve server order (reorder-aware)
                     dom: 'Blfrtip',
                     buttons: [
                         {
                             extend: 'excel',
                             text: '<i class="bi bi-file-earmark-excel"></i> Export Excel',
                             className: 'btn btn-success btn-sm',
-                            exportOptions: { columns: ':visible' }
+                            exportOptions: { columns: ':visible:not(.reorder-col)' }
                         },
                         {
                             extend: 'print',
                             text: '<i class="bi bi-printer"></i> Print',
-                            className: 'btn btn-secondary btn-sm'
+                            className: 'btn btn-secondary btn-sm',
+                            exportOptions: { columns: ':visible:not(.reorder-col)' }
                         }
                     ],
                     columnDefs: [
-                        { targets: [3], visible: false }  // Hide description by default
+                        { targets: [0], visible: false, orderable: false, className: 'reorder-col' },  // drag handle - hidden until reorder mode
+                        { targets: [5], visible: false }  // Hide description by default
                     ],
                     autoWidth: false
                 });
@@ -313,7 +391,7 @@
             });
     }
 
-    function buildOrderRow(order) {
+    function buildOrderRow(order, seq) {
         const blastDate = order.blast_date ? formatDate(order.blast_date) : '-';
         const completionDate = order.completion_date ? formatDate(order.completion_date) : '-';
         const promiseDate = order.promise_date ? formatDateShort(order.promise_date) : '-';
@@ -350,11 +428,12 @@
 
         const desc = order.description || '';
         const customer = order.customer || '';
-
         const specialInstr = order.special_instructions || '';
         const smLoc = order.supermarket_location || '';
 
-        return `<tr>
+        return `<tr data-wo="${order.wo_number}">
+            <td class="reorder-col" style="display:none;"><i class="bi bi-grip-vertical drag-handle"></i></td>
+            <td>${seq}</td>
             <td><strong>${order.wo_number}</strong></td>
             <td>${order.serial_number || '-'}</td>
             <td>${order.part_number}</td>
@@ -371,6 +450,108 @@
             <td>${order.turnaround_days || '-'}</td>
             <td>${statusBadge}</td>
         </tr>`;
+    }
+
+    function toggleReorderMode() {
+        reorderMode = document.getElementById('reorderToggle').checked;
+
+        if (reorderMode) {
+            // Enter reorder mode: show drag handles, disable DataTable sorting, show all rows
+            if (dataTable) {
+                // Show all rows for reorder
+                dataTable.page.len(-1).draw();
+                // Disable sorting
+                dataTable.order([]).draw();
+            }
+
+            // Show drag handle column
+            $('.reorder-col').show();
+            if (dataTable) dataTable.column(0).visible(true);
+
+            // Show reorder action buttons
+            $('#reorderActions').show();
+            document.body.classList.add('reorder-active');
+            $('#reorderStatus').text('Drag rows to reorder');
+
+            // Initialize SortableJS on tbody
+            const tbody = document.getElementById('scheduleTableBody');
+            sortableInstance = Sortable.create(tbody, {
+                handle: '.drag-handle',
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+                onEnd: function() {
+                    updateSequenceNumbers();
+                    $('#reorderStatus').text('Unsaved changes');
+                }
+            });
+        } else {
+            // Exit reorder mode
+            if (sortableInstance) {
+                sortableInstance.destroy();
+                sortableInstance = null;
+            }
+
+            // Hide drag handle column
+            $('.reorder-col').hide();
+            if (dataTable) dataTable.column(0).visible(false);
+
+            $('#reorderActions').hide();
+            document.body.classList.remove('reorder-active');
+        }
+    }
+
+    function updateSequenceNumbers() {
+        // Update the Seq column after a drag
+        const rows = document.querySelectorAll('#scheduleTableBody tr');
+        rows.forEach((row, idx) => {
+            row.cells[1].textContent = idx + 1;
+        });
+    }
+
+    function saveReorder() {
+        // Collect current WO order from DOM
+        const rows = document.querySelectorAll('#scheduleTableBody tr');
+        const sequence = [];
+        rows.forEach(row => {
+            const wo = row.getAttribute('data-wo');
+            if (wo) sequence.push(wo);
+        });
+
+        fetch('/api/schedule/reorder', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode: currentMode, sequence: sequence})
+        })
+        .then(r => r.json().then(d => ({ok: r.ok, data: d})))
+        .then(({ok, data}) => {
+            if (ok) {
+                $('#reorderStatus').text('Saved!');
+                $('#reorderBadge').show();
+                setTimeout(() => $('#reorderStatus').text(''), 2000);
+            } else {
+                alert('Failed to save: ' + (data.error || 'Unknown error'));
+            }
+        });
+    }
+
+    function resetReorder() {
+        if (!confirm('Reset to original order? Unsaved changes will be lost.')) return;
+        // Exit reorder mode and reload
+        document.getElementById('reorderToggle').checked = false;
+        toggleReorderMode();
+        loadSchedule();
+    }
+
+    function clearReorder() {
+        if (!confirm('Clear the custom order and revert to the scheduler\'s original sequence?')) return;
+
+        fetch('/api/schedule/reorder', {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                $('#reorderBadge').hide();
+                loadSchedule();
+            });
     }
 
     function formatDate(isoString) {
