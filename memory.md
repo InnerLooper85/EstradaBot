@@ -1,7 +1,7 @@
 # EstradaBot — Session Memory
 
-**Last updated:** February 15, 2026
-**Current deployed version:** MVP 1.8.2 (on master)
+**Last updated:** February 16, 2026
+**Current deployed version:** MVP 1.10.0 (on master, deployed to Cloud Run)
 
 ---
 
@@ -19,25 +19,32 @@
 
 ---
 
-## Current State of the App (MVP 1.7)
+## Current State of the App (MVP 1.10)
 
 - Full DES scheduling engine with 5-tier priority system
 - Web app: Dashboard, Upload, Schedule, Reports, Simulation, Planner Workflow, Update Log
 - 4/5-day schedule toggle, 3-scenario planner comparison (4d/10h, 4d/12h, 5d/12h)
+- Extended simulation: 6-day weeks, skeleton shifts, per-day config, custom scenario builder
 - Special Requests page with Mode A/B, impact preview, approval queue
 - Order Holds system, Special Instructions column (from DCP Report)
 - Notification bell, Alert reports (4 types), Feedback status tracking
 - Mfg Eng Review page, DCP Report parser
+- **User Management page** (admin): add/edit/disable users, GCS-backed persistence (`backend/user_store.py`)
+- **Self-service password change** via navbar dropdown (all users, requires current pw)
+- **Core Mapping page** (read-only): Part-to-Core + Core Inventory tabs, mismatch highlights
+- **Schedule Reorder** (drag-and-drop): SortableJS, cross-BLAST, persisted to GCS, reflected in exports, regeneration warning
 - Deployed on Cloud Run, files on GCS (`gs://estradabot-files`)
 
 ### Roles
-- `admin`, `planner`, `customer_service`/`customerservice`, `mfgeng`, guest/operator
+- `admin`, `planner`, `customer_service`, `mfgeng`, `operator`, `guest`
+- Role names normalized in MVP 1.8 (`customer_service` is the canonical form)
+- `operator` role added in MVP 1.10 for shop floor users (same access as guest)
 
 ### Known Tech Debt
-- Role name inconsistency (`customer_service` vs `customerservice`)
 - Global state in app.py (module-level dicts — fine for single-instance Cloud Run)
-- No automated tests (pytest planned)
+- 51 automated tests (alerts, API, DES scheduler) — good coverage for core paths
 - Planner workflow not battle-tested with real production data
+- Reorder doesn't recalculate BLAST timing/Desma assignments (visual sequence only for MVP)
 
 ---
 
@@ -48,8 +55,11 @@
 | Flask app + routes | `backend/app.py` |
 | DES engine | `backend/algorithms/des_scheduler.py` |
 | GCS storage | `backend/gcs_storage.py` |
+| User store (GCS-backed) | `backend/user_store.py` |
 | Base template | `backend/templates/base.html` |
-| Schedule page | `backend/templates/schedule.html` |
+| Schedule page (w/ reorder) | `backend/templates/schedule.html` |
+| User management page | `backend/templates/user_management.html` |
+| Core mapping page | `backend/templates/core_mapping.html` |
 | Excel exporter | `backend/exporters/excel_exporter.py` |
 | Project instructions | `CLAUDE.md` |
 | MVP 2.0 planning | `MVP_2.0_Planning.md` |
@@ -98,9 +108,10 @@ Scenario configs: `4day_10h`, `4day_12h`, `5day_12h` in `app.py`.
 
 ### MVP 1.x Release Plan (agreed Feb 15)
 
-- **1.8:** Role name normalization, resource utilization report, Days Idle column
-- **1.9:** Extended simulation (6-day weeks, skeleton shifts)
-- **1.10:** RBAC / user management, Core Mapping read-only view, basic schedule reorder
+- **1.8:** Role name normalization, resource utilization report, Days Idle column -- DONE
+- **1.9:** Extended simulation (6-day weeks, skeleton shifts) -- DONE
+- **1.10:** RBAC / user management, Core Mapping read-only view, schedule reorder -- DONE (deployed Feb 16)
+- **1.11:** Next release (in progress in separate session)
 - **Ongoing:** Automated tests (with each release), rubber grouping (when convenient)
 
 ### MVP 2.0 — New Scope

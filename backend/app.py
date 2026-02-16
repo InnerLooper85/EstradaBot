@@ -16,7 +16,6 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
-from user_store import UserStore, User, VALID_ROLES
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
@@ -24,6 +23,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env
 # Add backend to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from user_store import UserStore, User, VALID_ROLES
 from data_loader import DataLoader
 from algorithms.des_scheduler import DESScheduler, DayShiftConfig
 from exporters.excel_exporter import (
