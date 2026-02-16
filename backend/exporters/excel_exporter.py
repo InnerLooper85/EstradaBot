@@ -74,17 +74,34 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
     return output_path
 
 
-def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
+def export_blast_schedule(scheduled_orders: List, output_path: str,
+                          reorder_sequence: List = None) -> str:
     """
     Export the BLAST operation schedule (printable).
+    If reorder_sequence is provided, orders are sorted by that sequence
+    instead of by blast_date (manual override by planner).
     """
-    # Sort by BLAST date
     orders_with_blast = [o for o in scheduled_orders if o.blast_date]
-    orders_with_blast.sort(key=lambda x: x.blast_date)
+
+    if reorder_sequence:
+        # Apply custom reorder: build index by WO#, then sort by sequence position
+        wo_index = {o.wo_number: o for o in orders_with_blast}
+        reordered = []
+        for wo in reorder_sequence:
+            if wo in wo_index:
+                reordered.append(wo_index.pop(wo))
+        # Append any remaining orders not in the reorder sequence
+        for o in orders_with_blast:
+            if o.wo_number in wo_index:
+                reordered.append(o)
+        orders_with_blast = reordered
+    else:
+        # Default: sort by BLAST date
+        orders_with_blast.sort(key=lambda x: x.blast_date)
 
     data = []
     for seq, order in enumerate(orders_with_blast, 1):
-        data.append({
+        row = {
             'Seq': seq,
             'WO#': order.wo_number,
             'Part Number': order.part_number,
@@ -96,7 +113,10 @@ def export_blast_schedule(scheduled_orders: List, output_path: str) -> str:
             'Supermarket Location': getattr(order, 'supermarket_location', '') or '',
             'Special Instructions': getattr(order, 'special_instructions', '') or '',
             'Planned Desma': getattr(order, 'planned_desma', '') or ''
-        })
+        }
+        if reorder_sequence:
+            row['Manual Override'] = 'Yes'
+        data.append(row)
 
     df = pd.DataFrame(data)
 

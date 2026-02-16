@@ -882,3 +882,74 @@ def load_alerts() -> Optional[dict]:
     except Exception as e:
         print(f"[GCS] Failed to load alerts: {e}")
         return None
+
+
+# ============== Schedule Reorder Persistence ==============
+
+REORDER_STATE_FILE = 'state/reorder_state.json'
+
+
+def save_reorder_state(reorder_data: dict) -> bool:
+    """Save schedule reorder state. reorder_data = {mode, sequence, created_by, created_at, ...}"""
+    if USE_LOCAL_STORAGE:
+        try:
+            _local_save_json(REORDER_STATE_FILE, reorder_data)
+            print(f"[LOCAL] Saved reorder state")
+            return True
+        except Exception as e:
+            print(f"[LOCAL] Failed to save reorder state: {e}")
+            return False
+
+    bucket = get_bucket()
+    blob = bucket.blob(REORDER_STATE_FILE)
+
+    try:
+        json_data = json.dumps(reorder_data, default=str)
+        blob.upload_from_string(json_data, content_type='application/json')
+        print(f"[GCS] Saved reorder state")
+        return True
+    except Exception as e:
+        print(f"[GCS] Failed to save reorder state: {e}")
+        return False
+
+
+def load_reorder_state() -> Optional[dict]:
+    """Load schedule reorder state."""
+    if USE_LOCAL_STORAGE:
+        try:
+            data = _local_load_json(REORDER_STATE_FILE)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    bucket = get_bucket()
+    blob = bucket.blob(REORDER_STATE_FILE)
+
+    try:
+        json_data = blob.download_as_text()
+        data = json.loads(json_data)
+        return data if isinstance(data, dict) else None
+    except NotFound:
+        return None
+    except Exception as e:
+        print(f"[GCS] Failed to load reorder state: {e}")
+        return None
+
+
+def clear_reorder_state() -> bool:
+    """Clear (delete) the reorder state."""
+    if USE_LOCAL_STORAGE:
+        return _local_delete_file(REORDER_STATE_FILE.split('/')[-1],
+                                   REORDER_STATE_FILE.rsplit('/', 1)[0])
+
+    bucket = get_bucket()
+    blob = bucket.blob(REORDER_STATE_FILE)
+    try:
+        blob.delete()
+        print(f"[GCS] Cleared reorder state")
+        return True
+    except NotFound:
+        return True  # Already cleared
+    except Exception as e:
+        print(f"[GCS] Failed to clear reorder state: {e}")
+        return False

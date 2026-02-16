@@ -16,6 +16,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+from user_store import UserStore, User, VALID_ROLES
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
@@ -79,61 +80,22 @@ login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
 login_manager.login_message_category = 'warning'
 
+# Initialize GCS-backed user store
+user_store = UserStore()
 
-class User(UserMixin):
-    """Simple user class for authentication."""
-
-    def __init__(self, username, password_hash, role='user'):
-        self.id = username
-        self.username = username
-        self.password_hash = password_hash
-        self.role = role
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-
-def load_users():
-    """Load users from environment variables."""
-    users = {}
-
-    # Load admin user
+# Try loading from GCS first; if no users exist, seed from env vars
+if not user_store.load() or len(user_store.list_users()) == 0:
     admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
-    admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')  # Default for development only
-    users[admin_username] = User(
-        admin_username,
-        generate_password_hash(admin_password),
-        role='admin'
-    )
-
-    # Load additional users from USERS env var
-    # Format: username1:password1:role1,username2:password2:role2
-    # Role is optional, defaults to 'user'. Valid roles: planner, mfgeng, customer_service, guest
+    admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')
     users_env = os.environ.get('USERS', '')
-    if users_env:
-        for user_pair in users_env.split(','):
-            parts = user_pair.strip().split(':')
-            if len(parts) >= 2:
-                username = parts[0]
-                password = parts[1]
-                role = parts[2].strip().lower() if len(parts) > 2 else 'user'
-                users[username] = User(
-                    username,
-                    generate_password_hash(password),
-                    role=role
-                )
-
-    return users
-
-
-# Load users on startup
-USERS = load_users()
+    user_store.seed_from_env(admin_username, admin_password, users_env)
+    print("[Startup] Seeded users from environment variables")
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    """Load user by ID for Flask-Login."""
-    return USERS.get(user_id)
+    """Load user by ID for Flask-Login. Only returns active users."""
+    return user_store.get_active(user_id)
 
 
 # ============== Global State ==============
@@ -296,8 +258,8 @@ def login():
         password = request.form.get('password', '')
         remember = request.form.get('remember', False)
 
-        user = USERS.get(username)
-        if user and user.check_password(password):
+        user = user_store.get(username)
+        if user and user.active and user.check_password(password):
             login_user(user, remember=remember)
             flash(f'Welcome back, {username}!', 'success')
 
@@ -414,6 +376,307 @@ def update_log_page():
 def mfg_eng_review_page():
     """Manufacturing Engineering Review page."""
     return render_template('mfg_eng_review.html')
+
+
+@app.route('/user-management')
+@login_required
+def user_management_page():
+    """User management page — admin only."""
+    if current_user.role != 'admin':
+        flash('Only administrators can access user management.', 'danger')
+        return redirect(url_for('index'))
+    return render_template('user_management.html', valid_roles=VALID_ROLES)
+
+
+@app.route('/core-mapping')
+@login_required
+def core_mapping_page():
+    """Core Mapping read-only view — admin, mfgeng, planner."""
+    if current_user.role not in ('admin', 'mfgeng', 'planner'):
+        flash('You do not have permission to access Core Mapping.', 'danger')
+        return redirect(url_for('index'))
+    return render_template('core_mapping.html')
+
+
+# ============== User Management API ==============
+
+
+@app.route('/api/users', methods=['GET'])
+@login_required
+def api_list_users():
+    """List all users (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    return jsonify({'users': user_store.list_users()})
+
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+def api_create_user():
+    """Create a new user (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Request body is required.'}), 400
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    role = data.get('role', 'guest').strip().lower()
+
+    success, message = user_store.add_user(username, password, role)
+    if success:
+        return jsonify({'message': message}), 201
+    return jsonify({'error': message}), 400
+
+
+@app.route('/api/users/<username>/role', methods=['PUT'])
+@login_required
+def api_update_role(username):
+    """Update a user's role (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    if not data or 'role' not in data:
+        return jsonify({'error': 'Role is required.'}), 400
+
+    success, message = user_store.update_role(username, data['role'].strip().lower())
+    if success:
+        return jsonify({'message': message})
+    return jsonify({'error': message}), 400
+
+
+@app.route('/api/users/<username>/reset-password', methods=['PUT'])
+@login_required
+def api_reset_password(username):
+    """Admin password reset (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    data = request.get_json()
+    if not data or 'password' not in data:
+        return jsonify({'error': 'New password is required.'}), 400
+
+    success, message = user_store.reset_password(username, data['password'])
+    if success:
+        return jsonify({'message': message})
+    return jsonify({'error': message}), 400
+
+
+@app.route('/api/users/<username>/disable', methods=['PUT'])
+@login_required
+def api_disable_user(username):
+    """Disable a user account (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    if username == current_user.username:
+        return jsonify({'error': 'You cannot disable your own account.'}), 400
+
+    success, message = user_store.disable_user(username)
+    if success:
+        return jsonify({'message': message})
+    return jsonify({'error': message}), 400
+
+
+@app.route('/api/users/<username>/enable', methods=['PUT'])
+@login_required
+def api_enable_user(username):
+    """Re-enable a disabled user account (admin only)."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    success, message = user_store.enable_user(username)
+    if success:
+        return jsonify({'message': message})
+    return jsonify({'error': message}), 400
+
+
+@app.route('/api/users/me/password', methods=['PUT'])
+@login_required
+def api_change_own_password():
+    """Self-service password change (requires current password)."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Request body is required.'}), 400
+
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return jsonify({'error': 'Current and new passwords are required.'}), 400
+
+    success, message = user_store.change_password(
+        current_user.username, current_password, new_password
+    )
+    if success:
+        return jsonify({'message': message})
+    return jsonify({'error': message}), 400
+
+
+# ============== Core Mapping API ==============
+
+
+@app.route('/api/core-mapping')
+@login_required
+def api_core_mapping():
+    """Get core mapping data for the read-only view."""
+    if current_user.role not in ('admin', 'mfgeng', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        # Download files and load data
+        import tempfile
+        temp_dir = tempfile.mkdtemp(prefix='estradabot_core_')
+        local_paths = gcs_storage.download_files_for_processing(temp_dir)
+
+        loader = DataLoader(local_paths)
+
+        # Build mapping records
+        mapping_records = []
+        for part_number, data in loader.core_mapping.items():
+            mapping_records.append({
+                'part_number': part_number,
+                'description': data.get('description', ''),
+                'core_number': data.get('core_number'),
+                'rubber_type': data.get('rubber_type', ''),
+                'injection_time': data.get('injection_time'),
+                'cure_time': data.get('cure_time'),
+                'quench_time': data.get('quench_time'),
+                'stator_od': data.get('stator_od'),
+                'lobe_config': data.get('lobe_config'),
+                'stage_count': data.get('stage_count'),
+                'fit': data.get('fit', ''),
+            })
+
+        # Build inventory records
+        inventory_records = []
+        for core_number, cores in loader.core_inventory.items():
+            for core in cores:
+                inventory_records.append({
+                    'core_number': core_number,
+                    'suffix': core.get('suffix', ''),
+                    'core_pn': core.get('core_pn', ''),
+                    'model': core.get('model', ''),
+                    'tooling_pn': core.get('tooling_pn', ''),
+                    'state': core.get('state', 'available'),
+                })
+
+        # Detect mismatches: parts in orders referencing cores not in inventory
+        import pandas as pd
+        mismatches = []
+        inventory_core_set = set(loader.core_inventory.keys())
+
+        # Parts with no core mapping
+        unmapped = loader.validation_results.get('unmapped_parts', [])
+        for part in unmapped:
+            mismatches.append({
+                'part_number': part,
+                'reason': 'Part in orders but not in core mapping',
+            })
+
+        # Parts mapped to cores not in inventory
+        for part_number, data in loader.core_mapping.items():
+            core_num = data.get('core_number')
+            if core_num and not pd.isna(core_num):
+                try:
+                    core_int = int(float(core_num))
+                except (ValueError, TypeError):
+                    core_int = core_num
+                if core_int not in inventory_core_set:
+                    mismatches.append({
+                        'part_number': part_number,
+                        'core_number': core_num,
+                        'reason': 'Core in mapping but not in inventory',
+                    })
+
+        # Clean up temp dir
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return jsonify({
+            'mapping': mapping_records,
+            'inventory': inventory_records,
+            'mismatches': mismatches,
+            'summary': {
+                'total_parts_mapped': len(mapping_records),
+                'total_core_types': len(loader.core_inventory),
+                'total_physical_cores': sum(len(c) for c in loader.core_inventory.values()),
+                'mismatch_count': len(mismatches),
+            }
+        })
+
+    except Exception as e:
+        print(f"[Core Mapping API] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to load core mapping data: {str(e)}'}), 500
+
+
+# ============== Schedule Reorder API ==============
+
+
+@app.route('/api/schedule/reorder', methods=['POST'])
+@login_required
+def api_reorder_schedule():
+    """Save a manual reorder of the schedule. Admin/planner only.
+    Accepts {mode: '4day'|'5day', sequence: ['WO-001', 'WO-002', ...]}
+    Recalculates BLAST sequence numbers based on new order."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Only Planner and Admin users can reorder.'}), 403
+
+    data = request.get_json()
+    if not data or 'sequence' not in data:
+        return jsonify({'error': 'Sequence array is required.'}), 400
+
+    mode = data.get('mode', '4day')
+    sequence = data.get('sequence', [])
+
+    if not sequence:
+        return jsonify({'error': 'Sequence cannot be empty.'}), 400
+
+    # Save reorder state to GCS
+    reorder_state = {
+        'mode': mode,
+        'sequence': sequence,
+        'created_by': current_user.username,
+        'created_at': datetime.now().isoformat(),
+    }
+    gcs_storage.save_reorder_state(reorder_state)
+
+    return jsonify({
+        'message': f'Schedule reordered ({len(sequence)} orders).',
+        'sequence': sequence,
+    })
+
+
+@app.route('/api/schedule/reorder', methods=['DELETE'])
+@login_required
+def api_clear_reorder():
+    """Clear custom ordering, reverting to scheduler output. Admin/planner only."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    gcs_storage.clear_reorder_state()
+    return jsonify({'message': 'Custom ordering cleared.'})
+
+
+@app.route('/api/schedule/reorder/status')
+@login_required
+def api_reorder_status():
+    """Check if custom ordering exists for current schedule."""
+    state = gcs_storage.load_reorder_state()
+    if state:
+        return jsonify({
+            'has_reorder': True,
+            'mode': state.get('mode'),
+            'created_by': state.get('created_by'),
+            'created_at': state.get('created_at'),
+            'order_count': len(state.get('sequence', [])),
+        })
+    return jsonify({'has_reorder': False})
 
 
 # ============== Reconciliation Helpers ==============
@@ -784,6 +1047,22 @@ def generate_schedule():
     if current_user.role not in ('admin', 'planner'):
         return jsonify({'error': 'Only Planner and Admin users can generate schedules.'}), 403
 
+    # Check for existing custom reorder and warn
+    req_data = request.get_json() or {}
+    reorder_state = gcs_storage.load_reorder_state()
+    if reorder_state and not req_data.get('confirm_discard_reorder'):
+        return jsonify({
+            'warning': 'custom_order_exists',
+            'message': f'Custom ordering exists (set by {reorder_state.get("created_by", "unknown")}). '
+                       f'Generating a new schedule will discard this custom order.',
+            'reorder_by': reorder_state.get('created_by'),
+            'reorder_at': reorder_state.get('created_at'),
+        }), 409
+
+    # Clear reorder state since we're regenerating
+    if reorder_state:
+        gcs_storage.clear_reorder_state()
+
     try:
         # Download files from GCS to local temp directory
         import tempfile
@@ -979,6 +1258,32 @@ def _serialize_orders_from_dicts(serialized_orders):
     return orders_data
 
 
+def _apply_reorder(orders_data, mode):
+    """Apply custom reorder sequence to orders list if one exists for this mode."""
+    reorder_state = gcs_storage.load_reorder_state()
+    if not reorder_state or reorder_state.get('mode') != mode:
+        return orders_data, False
+
+    sequence = reorder_state.get('sequence', [])
+    if not sequence:
+        return orders_data, False
+
+    # Build index: WO# -> order dict
+    order_map = {o['wo_number']: o for o in orders_data}
+
+    reordered = []
+    for wo in sequence:
+        if wo in order_map:
+            reordered.append(order_map.pop(wo))
+
+    # Append any orders not in the saved sequence (new orders added after reorder)
+    for o in orders_data:
+        if o['wo_number'] in order_map:
+            reordered.append(o)
+
+    return reordered, True
+
+
 @app.route('/api/schedule')
 @login_required
 def get_schedule():
@@ -998,60 +1303,51 @@ def get_schedule():
                 mode = next(iter(current_schedule['modes']))
                 mode_data = current_schedule['modes'][mode]
 
+    orders_data = None
+    stats = {}
+    resp_has_modes = False
+
     # Case 1: We have in-memory ScheduledOrder objects (just generated)
     if mode_data and mode_data.get('orders'):
-        orders_data, fresh_stats = _serialize_orders_from_objects(
+        orders_data, stats = _serialize_orders_from_objects(
             mode_data['orders'], mode_data.get('stats', {})
         )
-        return jsonify({
-            'orders': orders_data,
-            'stats': fresh_stats,
-            'mode': mode,
-            'has_modes': True,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
-            'published_by': current_schedule.get('published_by', '')
-        })
+        resp_has_modes = True
 
     # Case 2: We have serialized orders from mode data (loaded from GCS)
-    if mode_data and mode_data.get('serialized_orders'):
+    elif mode_data and mode_data.get('serialized_orders'):
         orders_data = _serialize_orders_from_dicts(mode_data['serialized_orders'])
-        return jsonify({
-            'orders': orders_data,
-            'stats': mode_data.get('stats', {}),
-            'mode': mode,
-            'has_modes': True,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
-            'published_by': current_schedule.get('published_by', '')
-        })
+        stats = mode_data.get('stats', {})
+        resp_has_modes = True
 
     # Case 3: Legacy single-mode data (in-memory objects)
-    if current_schedule.get('orders'):
-        orders_data, fresh_stats = _serialize_orders_from_objects(
+    elif current_schedule.get('orders'):
+        orders_data, stats = _serialize_orders_from_objects(
             current_schedule['orders'], current_schedule.get('stats', {})
         )
-        return jsonify({
-            'orders': orders_data,
-            'stats': fresh_stats,
-            'mode': '4day',
-            'has_modes': False,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
-            'published_by': current_schedule.get('published_by', '')
-        })
+        mode = '4day'
 
     # Case 4: Legacy single-mode data (serialized dicts from GCS)
-    if current_schedule.get('serialized_orders'):
+    elif current_schedule.get('serialized_orders'):
         orders_data = _serialize_orders_from_dicts(current_schedule['serialized_orders'])
-        return jsonify({
-            'orders': orders_data,
-            'stats': current_schedule.get('stats', {}),
-            'mode': '4day',
-            'has_modes': False,
-            'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
-            'published_by': current_schedule.get('published_by', '')
-        })
+        stats = current_schedule.get('stats', {})
+        mode = '4day'
 
-    # No schedule data at all
-    return jsonify({'orders': [], 'stats': {}, 'mode': '4day', 'has_modes': False})
+    if not orders_data:
+        return jsonify({'orders': [], 'stats': {}, 'mode': '4day', 'has_modes': False, 'has_reorder': False})
+
+    # Apply custom reorder if it exists for this mode
+    orders_data, has_reorder = _apply_reorder(orders_data, mode)
+
+    return jsonify({
+        'orders': orders_data,
+        'stats': stats,
+        'mode': mode,
+        'has_modes': resp_has_modes or has_modes is not None,
+        'has_reorder': has_reorder,
+        'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
+        'published_by': current_schedule.get('published_by', '')
+    })
 
 
 @app.route('/api/download/<filename>')

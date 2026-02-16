@@ -216,6 +216,7 @@
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><span class="dropdown-item-text text-muted small">Logged in as {{ current_user.role }}</span></li>
                             <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="showChangePasswordModal(); return false;"><i class="bi bi-key"></i> Change Password</a></li>
                             <li><a class="dropdown-item" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
                         </ul>
                     </li>
@@ -251,6 +252,11 @@
                     <a class="nav-link {% if request.endpoint == 'mfg_eng_review_page' %}active{% endif %}" href="/mfg-eng-review">
                         <i class="bi bi-gear-wide-connected"></i> Mfg Eng Review
                     </a>
+                    {% if current_user.is_authenticated and current_user.role in ['admin', 'mfgeng', 'planner'] %}
+                    <a class="nav-link {% if request.endpoint == 'core_mapping_page' %}active{% endif %}" href="/core-mapping">
+                        <i class="bi bi-diagram-3-fill"></i> Core Mapping
+                    </a>
+                    {% endif %}
                     <a class="nav-link {% if request.endpoint == 'alerts_page' %}active{% endif %}" href="/alerts">
                         <i class="bi bi-bell-fill"></i> Alerts
                     </a>
@@ -261,6 +267,11 @@
                     </a>
                     <a class="nav-link" href="#" onclick="generateSchedule(); return false;">
                         <i class="bi bi-gear"></i> Generate Schedule
+                    </a>
+                    {% endif %}
+                    {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                    <a class="nav-link {% if request.endpoint == 'user_management_page' %}active{% endif %}" href="/user-management">
+                        <i class="bi bi-people-fill"></i> User Management
                     </a>
                     {% endif %}
                     <a class="nav-link {% if request.endpoint == 'update_log_page' %}active{% endif %}" href="/updates">
@@ -287,6 +298,40 @@
             </div>
         </div>
     </div>
+
+    <!-- Change Password Modal -->
+    {% if current_user.is_authenticated %}
+    <div class="modal fade" id="changePasswordModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-key"></i> Change Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Current Password</label>
+                        <input type="password" class="form-control" id="cpCurrentPw" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Password</label>
+                        <input type="password" class="form-control" id="cpNewPw" minlength="6" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirm New Password</label>
+                        <input type="password" class="form-control" id="cpConfirmPw" minlength="6" required>
+                    </div>
+                    <div id="cpError" class="alert alert-danger" style="display:none;"></div>
+                    <div id="cpSuccess" class="alert alert-success" style="display:none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="changePassword()">Change Password</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Toast Container -->
     <div class="toast-container"></div>
@@ -345,20 +390,31 @@
             toast.show();
         }
 
-        // Generate schedule
-        function generateSchedule() {
+        // Generate schedule (with reorder warning support)
+        function generateSchedule(confirmDiscard) {
             showLoading('Generating schedule...');
+
+            const body = confirmDiscard ? {confirm_discard_reorder: true} : {};
 
             fetch('/api/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({})
+                body: JSON.stringify(body)
             })
-            .then(response => response.json())
-            .then(data => {
+            .then(response => response.json().then(d => ({status: response.status, data: d})))
+            .then(({status, data}) => {
                 hideLoading();
+
+                // Handle reorder warning (409)
+                if (status === 409 && data.warning === 'custom_order_exists') {
+                    if (confirm(data.message + '\n\nDiscard custom ordering and regenerate?')) {
+                        generateSchedule(true);
+                    }
+                    return;
+                }
+
                 if (data.success) {
                     showToast(`Schedule generated! ${data.stats.total_orders} orders scheduled.`);
                     // Reload page to show updated data
@@ -370,6 +426,49 @@
             .catch(error => {
                 hideLoading();
                 showToast('Error: ' + error.message, 'error');
+            });
+        }
+
+        // Change password modal
+        function showChangePasswordModal() {
+            document.getElementById('cpCurrentPw').value = '';
+            document.getElementById('cpNewPw').value = '';
+            document.getElementById('cpConfirmPw').value = '';
+            document.getElementById('cpError').style.display = 'none';
+            document.getElementById('cpSuccess').style.display = 'none';
+            new bootstrap.Modal('#changePasswordModal').show();
+        }
+
+        function changePassword() {
+            const current = document.getElementById('cpCurrentPw').value;
+            const newPw = document.getElementById('cpNewPw').value;
+            const confirm = document.getElementById('cpConfirmPw').value;
+            const errEl = document.getElementById('cpError');
+            const succEl = document.getElementById('cpSuccess');
+            errEl.style.display = 'none';
+            succEl.style.display = 'none';
+
+            if (newPw !== confirm) {
+                errEl.textContent = 'New passwords do not match.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            fetch('/api/users/me/password', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({current_password: current, new_password: newPw})
+            })
+            .then(r => r.json().then(d => ({ok: r.ok, data: d})))
+            .then(({ok, data}) => {
+                if (ok) {
+                    succEl.textContent = data.message;
+                    succEl.style.display = 'block';
+                    setTimeout(() => bootstrap.Modal.getInstance('#changePasswordModal').hide(), 1500);
+                } else {
+                    errEl.textContent = data.error;
+                    errEl.style.display = 'block';
+                }
             });
         }
     </script>
