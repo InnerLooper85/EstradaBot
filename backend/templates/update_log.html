@@ -76,6 +76,19 @@
     </div>
 </div>
 
+<!-- My Feedback (visible to all logged-in users) -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-chat-left-text"></i> My Feedback</span>
+        <span class="badge bg-secondary" id="myFeedbackCount">0</span>
+    </div>
+    <div class="card-body">
+        <div id="myFeedbackList">
+            <p class="text-muted text-center py-3">Loading your feedback...</p>
+        </div>
+    </div>
+</div>
+
 <!-- Recent Feedback (admin only) -->
 {% if current_user.role == 'admin' %}
 <div class="card mb-4">
@@ -522,7 +535,8 @@
                 setTimeout(() => {
                     document.getElementById('feedbackSuccess').style.display = 'none';
                 }, 5000);
-                // Refresh feedback list if admin
+                // Refresh feedback lists
+                loadMyFeedback();
                 if (document.getElementById('feedbackList')) {
                     loadFeedback();
                 }
@@ -534,6 +548,60 @@
             alert('Error: ' + error.message);
         });
     });
+
+    // Load current user's feedback
+    function loadMyFeedback() {
+        fetch('/api/feedback/mine')
+            .then(response => response.json())
+            .then(data => {
+                const list = document.getElementById('myFeedbackList');
+                const count = document.getElementById('myFeedbackCount');
+
+                if (!data.feedback || data.feedback.length === 0) {
+                    list.innerHTML = '<p class="text-muted text-center py-3">You haven\'t submitted any feedback yet.</p>';
+                    count.textContent = '0';
+                    return;
+                }
+
+                count.textContent = data.feedback.length;
+                let html = '<div class="table-responsive"><table class="table table-sm table-hover"><thead><tr>' +
+                    '<th>Date</th><th>Category</th><th>Priority</th><th>Status</th><th>Message</th>' +
+                    '</tr></thead><tbody>';
+
+                data.feedback.forEach(fb => {
+                    const date = new Date(fb.submitted_at).toLocaleDateString('en-US', {
+                        month: '2-digit', day: '2-digit', year: '2-digit'
+                    });
+
+                    const status = fb.status || 'New';
+                    const statusColors = {
+                        'New': 'bg-primary',
+                        'In-Work': 'bg-warning text-dark',
+                        'Fixed': 'bg-success',
+                        'Resolved w/o Action': 'bg-secondary'
+                    };
+                    const statusBadge = statusColors[status] || 'bg-secondary';
+
+                    html += `<tr>
+                        <td class="small">${date}</td>
+                        <td>${fb.category}</td>
+                        <td>${fb.priority}</td>
+                        <td><span class="badge ${statusBadge}">${status}</span></td>
+                        <td>${fb.message.substring(0, 120)}${fb.message.length > 120 ? '...' : ''}</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+                list.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error loading my feedback:', error);
+                document.getElementById('myFeedbackList').innerHTML =
+                    '<p class="text-danger text-center py-3">Failed to load feedback.</p>';
+            });
+    }
+
+    loadMyFeedback();
 
     // Load feedback list (admin only)
     {% if current_user.role == 'admin' %}

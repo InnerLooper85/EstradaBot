@@ -1472,6 +1472,20 @@ def submit_feedback():
         return jsonify({'error': 'Failed to save feedback'}), 500
 
 
+@app.route('/api/feedback/mine')
+@login_required
+def get_my_feedback():
+    """Get the current user's own feedback submissions with status."""
+    try:
+        feedback = gcs_storage.load_feedback()
+        my_feedback = [f for f in feedback if f.get('username') == current_user.username]
+        my_feedback.reverse()  # Newest first
+        return jsonify({'feedback': my_feedback})
+    except Exception as e:
+        print(f"[ERROR] Failed to load user feedback: {e}")
+        return jsonify({'feedback': []})
+
+
 @app.route('/api/feedback')
 @login_required
 def get_feedback():
