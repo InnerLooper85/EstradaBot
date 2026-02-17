@@ -6,14 +6,16 @@ Fetches user feedback from GCS (or local storage), processes it into
 structured formats for dev review and agent consumption.
 
 Usage:
-    python tools/feedback_pipeline.py fetch              # Fetch all unprocessed feedback
-    python tools/feedback_pipeline.py fetch --all        # Fetch all feedback regardless of status
+    python tools/feedback_pipeline.py fetch                  # Fetch all unprocessed feedback
+    python tools/feedback_pipeline.py fetch --all            # Fetch all feedback regardless of status
     python tools/feedback_pipeline.py fetch --category "Bug Report"
     python tools/feedback_pipeline.py fetch --since 2026-02-01
-    python tools/feedback_pipeline.py mark <index> ingested   # Mark as ingested into dev session
-    python tools/feedback_pipeline.py mark <index> actioned   # Mark as acted upon
-    python tools/feedback_pipeline.py mark <index> closed     # Mark as closed
-    python tools/feedback_pipeline.py stats              # Show feedback summary stats
+    python tools/feedback_pipeline.py mark <index> ingested  # Mark as ingested into dev session
+    python tools/feedback_pipeline.py mark <index> actioned  # Mark as acted upon
+    python tools/feedback_pipeline.py mark <index> closed    # Mark as closed
+    python tools/feedback_pipeline.py create-issue <index>   # Create GitHub issue from entry
+    python tools/feedback_pipeline.py create-issues          # Batch create issues for all unprocessed
+    python tools/feedback_pipeline.py stats                  # Show feedback summary stats
 
 Output:
     feedback/inbox.json   — Structured JSON for programmatic access
@@ -27,6 +29,7 @@ Environment:
 import argparse
 import json
 import os
+import subprocess
 import sys
 from collections import Counter
 from datetime import datetime
@@ -354,6 +357,201 @@ def show_stats(args):
     print()
 
 
+def create_issue(args):
+    """Create a GitHub issue from a single feedback entry."""
+    all_entries = gcs_storage.load_feedback()
+    idx = args.index
+
+    if idx < 0 or idx >= len(all_entries):
+        print(f"[Pipeline] Index {idx} out of range (0-{len(all_entries) - 1})")
+        sys.exit(1)
+
+    entry = all_entries[idx]
+
+    if entry.get('github_issue'):
+        print(f"[Pipeline] Entry #{idx} already has GitHub issue: "
+              f"#{entry['github_issue']['number']}")
+        if not args.force:
+            print("  Use --force to create another issue anyway.")
+            return
+
+    issue_url = _create_gh_issue(entry, idx)
+    if issue_url:
+        # Store issue link back on the feedback entry
+        all_entries[idx]['github_issue'] = {
+            'url': issue_url,
+            'number': _parse_issue_number(issue_url),
+            'created_at': datetime.now().isoformat(),
+        }
+        all_entries[idx]['dev_status'] = 'actioned'
+        all_entries[idx]['dev_status_updated_at'] = datetime.now().isoformat()
+        _save_all(all_entries)
+        print(f"[Pipeline] Issue created: {issue_url}")
+        print(f"[Pipeline] Entry #{idx} dev_status → 'actioned'")
+
+
+def create_issues_batch(args):
+    """Create GitHub issues for all unprocessed or ingested feedback entries."""
+    all_entries = gcs_storage.load_feedback()
+
+    eligible = []
+    for i, entry in enumerate(all_entries):
+        dev_status = entry.get('dev_status', 'unprocessed')
+        if dev_status in ('unprocessed', 'ingested') and not entry.get('github_issue'):
+            eligible.append((i, entry))
+
+    if not eligible:
+        print("[Pipeline] No eligible entries for issue creation.")
+        return
+
+    print(f"[Pipeline] Found {len(eligible)} entries to create issues for:")
+    for i, entry in eligible:
+        print(f"  #{i}: [{entry.get('category')}] {entry.get('message', '')[:60]}...")
+
+    if not args.yes:
+        confirm = input(f"\nCreate {len(eligible)} GitHub issues? [y/N] ").strip().lower()
+        if confirm != 'y':
+            print("[Pipeline] Aborted.")
+            return
+
+    created = 0
+    for i, entry in eligible:
+        issue_url = _create_gh_issue(entry, i)
+        if issue_url:
+            all_entries[i]['github_issue'] = {
+                'url': issue_url,
+                'number': _parse_issue_number(issue_url),
+                'created_at': datetime.now().isoformat(),
+            }
+            all_entries[i]['dev_status'] = 'actioned'
+            all_entries[i]['dev_status_updated_at'] = datetime.now().isoformat()
+            created += 1
+
+    _save_all(all_entries)
+    print(f"\n[Pipeline] Created {created}/{len(eligible)} GitHub issues")
+
+
+def _create_gh_issue(entry: dict, index: int) -> str:
+    """Create a GitHub issue using the gh CLI. Returns issue URL or empty string."""
+    category = entry.get('category', 'Other')
+    priority = entry.get('priority', 'Medium')
+    page = entry.get('page', '')
+    user = entry.get('username', 'unknown')
+    date = entry.get('submitted_at', '')[:10]
+    message = entry.get('message', '')
+
+    # Map category to label
+    label_map = {
+        'Bug Report': 'bug',
+        'Feature Request': 'enhancement',
+        'Data Issue': 'data',
+        'UI/UX Improvement': 'ui',
+        'Example File': 'data',
+        'Other': 'feedback',
+    }
+    label = label_map.get(category, 'feedback')
+
+    # Build title
+    title_prefix = {
+        'Bug Report': 'Bug',
+        'Feature Request': 'Feature',
+        'Data Issue': 'Data',
+        'UI/UX Improvement': 'UI/UX',
+        'Example File': 'Example',
+        'Other': 'Feedback',
+    }
+    prefix = title_prefix.get(category, 'Feedback')
+    # Truncate message for title
+    title_msg = message.split('\n')[0][:60]
+    title = f"[{prefix}] {title_msg}"
+
+    # Build body
+    body_lines = [
+        f"## User Feedback (#{index})",
+        f"",
+        f"**Category:** {category}  ",
+        f"**Priority:** {priority}  ",
+        f"**Submitted by:** {user} on {date}  ",
+    ]
+    if page:
+        body_lines.append(f"**Related page:** {page}  ")
+
+    body_lines.extend([
+        f"",
+        f"### Description",
+        f"",
+        message,
+        f"",
+    ])
+
+    if entry.get('attachment'):
+        att = entry['attachment']
+        body_lines.extend([
+            f"### Attachment",
+            f"- **File:** {att.get('filename', 'unknown')}",
+            f"- **Type:** {att.get('type', 'unknown')}",
+            f"- **Size:** {att.get('size', 0) // 1024} KB",
+            f"- **Stored as:** `{att.get('stored_as', '')}`",
+            f"",
+        ])
+
+    body_lines.extend([
+        f"---",
+        f"*Created from feedback pipeline entry #{index}*",
+    ])
+
+    body = '\n'.join(body_lines)
+
+    # Build labels list
+    labels = [label, f"priority:{priority.lower()}", "from-feedback"]
+
+    try:
+        cmd = [
+            'gh', 'issue', 'create',
+            '--title', title,
+            '--body', body,
+            '--label', ','.join(labels),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            print(f"  Created: {url}")
+            return url
+        else:
+            stderr = result.stderr.strip()
+            # If labels don't exist, retry without labels
+            if 'label' in stderr.lower():
+                print(f"  Warning: Labels may not exist. Retrying without labels...")
+                cmd_no_labels = [
+                    'gh', 'issue', 'create',
+                    '--title', title,
+                    '--body', body,
+                ]
+                result2 = subprocess.run(cmd_no_labels, capture_output=True, text=True, timeout=30)
+                if result2.returncode == 0:
+                    url = result2.stdout.strip()
+                    print(f"  Created (no labels): {url}")
+                    return url
+
+            print(f"  Error creating issue: {stderr}")
+            return ''
+    except FileNotFoundError:
+        print("[Pipeline] ERROR: 'gh' CLI not found. Install it: https://cli.github.com/")
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print("  Error: gh command timed out")
+        return ''
+
+
+def _parse_issue_number(url: str) -> int:
+    """Extract issue number from a GitHub issue URL."""
+    try:
+        return int(url.rstrip('/').split('/')[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
 def _save_all(entries):
     """Save the full feedback list back to storage."""
     if gcs_storage.USE_LOCAL_STORAGE:
@@ -398,6 +596,21 @@ def main():
     mark_parser.add_argument('dev_status', type=str,
                              help='New status: unprocessed, ingested, actioned, closed')
     mark_parser.set_defaults(func=mark_status)
+
+    # create-issue command
+    issue_parser = subparsers.add_parser('create-issue',
+                                          help='Create a GitHub issue from a feedback entry')
+    issue_parser.add_argument('index', type=int, help='Entry index')
+    issue_parser.add_argument('--force', action='store_true',
+                              help='Create even if issue already exists')
+    issue_parser.set_defaults(func=create_issue)
+
+    # create-issues command (batch)
+    batch_parser = subparsers.add_parser('create-issues',
+                                          help='Create GitHub issues for all unprocessed feedback')
+    batch_parser.add_argument('--yes', '-y', action='store_true',
+                              help='Skip confirmation prompt')
+    batch_parser.set_defaults(func=create_issues_batch)
 
     # stats command
     stats_parser = subparsers.add_parser('stats', help='Show feedback summary stats')
