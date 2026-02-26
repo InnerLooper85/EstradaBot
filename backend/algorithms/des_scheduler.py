@@ -787,6 +787,11 @@ class DESScheduler:
         """
         Assign a core and calculate when it returns.
 
+        Estimates core return time using phased calculation that matches
+        how the simulation actually processes each station:
+        - Most stations pause for breaks/handovers (break-sensitive)
+        - CURE and QUENCH continue during breaks (break-insensitive)
+
         Returns the datetime when the core becomes available again.
         """
         # Calculate core lifecycle time (handle None values)
@@ -794,22 +799,34 @@ class DESScheduler:
         cure_time = (part_data.get('cure_time') if part_data else None) or 1.5
         quench_time = (part_data.get('quench_time') if part_data else None) or 0.75
 
-        # Core lifecycle from BLAST:
-        # TUBE PREP/CORE OVEN (concurrent, ~3.5h) -> ASSEMBLY (0.2h) -> INJECTION ->
-        # CURE -> QUENCH -> DISASSEMBLY (0.5h) -> CLEANING (0.75h)
-        total_hours = (
+        # Phase 1: Break-sensitive operations (pause for breaks/handovers)
+        # TUBE PREP/CORE OVEN (concurrent, ~3.5h) -> ASSEMBLY (0.2h) -> INJECTION
+        pre_cure_hours = (
             3.5 +           # Max of TUBE PREP/CORE OVEN
             0.2 +           # Assembly
             injection_time +
-            cure_time +
-            quench_time +
-            0.5 +           # Disassembly
-            0.75            # Cleaning
+            0.5             # Buffer for avg injection machine wait/changeover
         )
 
-        # Calculate return time (CURE/QUENCH continue during breaks)
-        return_time = self.work_config.advance_time(blast_time, total_hours,
-                                                    continue_during_breaks=True)
+        # Phase 2: Break-insensitive operations (CURE + QUENCH continue during breaks)
+        cure_quench_hours = cure_time + quench_time
+
+        # Phase 3: Break-sensitive again (DISASSEMBLY + cleanup)
+        post_cure_hours = (
+            0.5 +           # Disassembly
+            0.75            # Cleaning (BLD/INJ cutback, etc.)
+        )
+
+        # Calculate return time in phases matching simulation behavior
+        after_injection = self.work_config.advance_time(
+            blast_time, pre_cure_hours, continue_during_breaks=False
+        )
+        after_cure_quench = self.work_config.advance_time(
+            after_injection, cure_quench_hours, continue_during_breaks=True
+        )
+        return_time = self.work_config.advance_time(
+            after_cure_quench, post_cure_hours, continue_during_breaks=False
+        )
 
         # Update core status
         for core in self.core_inventory[core_number]:

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.10.0</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.10.1</span>
 </div>
 
 <!-- Feedback Form -->
@@ -110,6 +110,24 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.10.1 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.10.1</span>
+                <small class="text-muted ms-2">February 2026 - Scheduler Accuracy Fix</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-bug text-warning"></i>
+                    <strong>Fix:</strong> Core return time estimate now uses phased break-sensitive/insensitive calculation matching actual simulation behavior — eliminates artificial clustering in schedule and simulation
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-speedometer2 text-info"></i>
+                    <strong>Improvement:</strong> Added injection machine contention buffer to core availability estimates for more realistic scheduling flow
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.10.0 -->
         <div class="mb-4">
             <h5>
