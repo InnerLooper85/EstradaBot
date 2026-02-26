@@ -243,6 +243,18 @@ class DataLoader:
             print(f"  After filtering: {len(self.orders)}")
             print(f"  Excluded: {len(sales_excluded)}")
 
+            # Deduplicate by WO# (SAP exports can have multiple rows per WO)
+            seen_wo = set()
+            unique_orders = []
+            for order in self.orders:
+                wo = order.get('wo_number')
+                if wo and wo not in seen_wo:
+                    seen_wo.add(wo)
+                    unique_orders.append(order)
+            if len(unique_orders) < len(self.orders):
+                print(f"  Deduplicated: {len(self.orders)} -> {len(unique_orders)} (removed {len(self.orders) - len(unique_orders)} duplicate WO#s)")
+            self.orders = unique_orders
+
             order_validation = validate_orders(self.orders)
             self.validation_results['orders'] = order_validation
 

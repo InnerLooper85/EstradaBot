@@ -893,7 +893,7 @@ class DESScheduler:
         from algorithms.scheduler import ScheduledOrder, ScheduledOperation
 
         start_date = start_date or datetime.now().replace(
-            hour=5, minute=20, second=0, microsecond=0
+            hour=5, minute=30, second=0, microsecond=0
         )
 
         self.current_time = start_date
@@ -1108,7 +1108,8 @@ class DESScheduler:
 
         Uses per-day takt times when day_configs are set (advanced mode).
         """
-        current_slot = start_date
+        # Ensure we start at a valid (unblocked) working time
+        current_slot = self.work_config.next_unblocked_time(start_date)
         last_rubber_type = None  # Track for alternation
 
         remaining_orders = orders.copy()
