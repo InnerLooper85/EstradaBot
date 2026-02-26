@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.10.2</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.10.3</span>
 </div>
 
 <!-- Feedback Form -->
@@ -110,6 +110,28 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.10.3 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.10.3</span>
+                <small class="text-muted ms-2">February 2026 - Scheduling Gap Fix &amp; Injection Bottleneck Detection</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-bug text-warning"></i>
+                    <strong>Fixed non-working day night shift bug:</strong> Core return estimates were inflated across weekends because early morning hours (12-5 AM) on non-working days were incorrectly blocked, even when they belonged to the previous day's night shift. This caused artificial gaps in the Monday schedule.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-arrow-repeat text-primary"></i>
+                    <strong>Redesigned blast scheduling algorithm:</strong> The scheduler now scans the entire order pool for each takt slot. If the highest-priority order's core is unavailable, it pulls from lower-priority orders to fill the slot instead of leaving a gap.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-speedometer2 text-success"></i>
+                    <strong>Added downstream injection bottleneck detection:</strong> Before scheduling a part into a blast slot, the system now checks if the injection machines (Desmas) can handle it when it arrives downstream. A slot is only skipped if all orders would cause an injection bottleneck.
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.10.2 -->
         <div class="mb-4">
             <h5>

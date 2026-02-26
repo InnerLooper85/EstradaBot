@@ -177,9 +177,30 @@ class WorkScheduleConfig:
 
         # Check if this is a working day
         if not self.is_working_day(dt):
-            # Entire day is blocked
             day_start = datetime.combine(date, datetime.min.time())
             day_end = day_start + timedelta(days=1)
+
+            # If previous day had a night shift, early morning hours (00:00-05:00)
+            # belong to that shift and should NOT be blocked
+            if self.has_night_shift:
+                yesterday = date - timedelta(days=1)
+                if (yesterday.weekday() in self.working_days and
+                        self.has_night_shift_on_day(yesterday.weekday())):
+                    # Previous night shift runs until shift2_end (5 AM)
+                    shift2_end_time = datetime.combine(
+                        date, datetime.min.time().replace(hour=self.shift2_end))
+                    periods = []
+                    # Include night breaks that fall in early morning
+                    for hour, minute, duration in self.night_breaks:
+                        if hour < self.shift2_end:
+                            break_start = datetime.combine(
+                                date, datetime.min.time().replace(hour=hour, minute=minute))
+                            periods.append((break_start, break_start + timedelta(minutes=duration)))
+                    # Block from shift2_end (5 AM) to end of day
+                    periods.append((shift2_end_time, day_end))
+                    return sorted(periods, key=lambda x: x[0])
+
+            # No previous night shift — entire day is blocked
             return [(day_start, day_end)]
 
         day_start = datetime.combine(date, datetime.min.time())
@@ -727,6 +748,16 @@ class DESScheduler:
         self.current_time: datetime = None
         self._part_counter = 0
 
+        # Injection machine scheduling tracker (for bottleneck detection during blast scheduling)
+        # Maps machine_id -> estimated available_at time
+        self._injection_schedule: Dict[str, Optional[datetime]] = {
+            m.machine_id: None for m in self.injection_machines
+        }
+        # Track current rubber type per machine for changeover estimation
+        self._injection_rubber: Dict[str, Optional[str]] = {
+            m.machine_id: None for m in self.injection_machines
+        }
+
     def _init_core_inventory(self, inventory: Dict) -> Dict:
         """Initialize core inventory with availability tracking."""
         result = {}
@@ -876,6 +907,89 @@ class DESScheduler:
             best_time = max(flex.available_at or needed_at, needed_at)
 
         return best_machine, best_time
+
+    def _estimate_injection_arrival(self, blast_time: datetime) -> datetime:
+        """Estimate when a part blasted at blast_time will reach injection.
+        Uses a cache since all parts at the same blast_time have the same estimate."""
+        if not hasattr(self, '_inj_arrival_cache'):
+            self._inj_arrival_cache = {}
+        if blast_time in self._inj_arrival_cache:
+            return self._inj_arrival_cache[blast_time]
+        # BLAST (0.15h) + max(TUBE PREP 3.5h, CORE OVEN 2.5h) + ASSEMBLY (0.2h)
+        pre_injection_hours = 0.15 + 3.5 + 0.2
+        result = self.work_config.advance_time(
+            blast_time, pre_injection_hours, continue_during_breaks=False
+        )
+        self._inj_arrival_cache[blast_time] = result
+        return result
+
+    def _check_injection_bottleneck(self, rubber_type: str, blast_time: datetime,
+                                     injection_time: float = 0.5) -> Tuple[bool, Optional[str]]:
+        """
+        Check if scheduling a part at blast_time would cause a downstream
+        injection bottleneck.
+
+        Returns:
+            (is_bottleneck, best_machine_id) — if not bottleneck, best_machine_id
+            is the machine to reserve. If bottleneck, best_machine_id is None.
+        """
+        if not rubber_type:
+            # Unknown rubber type — can't assess bottleneck, assume OK
+            return False, None
+
+        est_arrival = self._estimate_injection_arrival(blast_time)
+
+        # Find the best available machine for this rubber type
+        best_machine_id = None
+        best_available = None
+
+        for machine in self.injection_machines:
+            if not machine.can_run(rubber_type):
+                continue
+
+            machine_avail = self._injection_schedule.get(machine.machine_id)
+            avail_time = max(machine_avail, est_arrival) if machine_avail else est_arrival
+
+            # Add changeover time if rubber type is different
+            current_rubber = self._injection_rubber.get(machine.machine_id)
+            if current_rubber and current_rubber != rubber_type:
+                # Simple 1h offset for changeover estimate (avoids expensive advance_time)
+                avail_time = avail_time + timedelta(hours=machine.changeover_time_hours)
+
+            if best_available is None or avail_time < best_available:
+                best_available = avail_time
+                best_machine_id = machine.machine_id
+
+        if best_machine_id is None:
+            # No machine can run this rubber type at all
+            return True, None
+
+        # A machine is available — check if it would cause significant delay
+        # Bottleneck = the part would have to wait more than 1 takt period (30 min)
+        # for injection after arriving at the injection station
+        wait_time = (best_available - est_arrival).total_seconds() / 3600
+        if wait_time > 0.5:  # More than 30 min wait = bottleneck
+            return True, None
+
+        return False, best_machine_id
+
+    def _reserve_injection_machine(self, machine_id: str, rubber_type: str,
+                                    blast_time: datetime, injection_time: float = 0.5):
+        """Reserve an injection machine slot during blast scheduling."""
+        est_arrival = self._estimate_injection_arrival(blast_time)
+
+        machine_avail = self._injection_schedule.get(machine_id)
+        start_time = max(machine_avail, est_arrival) if machine_avail else est_arrival
+
+        # Add changeover if needed (simple offset for scheduling estimate)
+        current_rubber = self._injection_rubber.get(machine_id)
+        if current_rubber and current_rubber != rubber_type:
+            start_time = start_time + timedelta(hours=1.0)  # 1h changeover
+
+        # Machine busy for injection_time hours (simple offset for estimate)
+        end_time = start_time + timedelta(hours=injection_time)
+        self._injection_schedule[machine_id] = end_time
+        self._injection_rubber[machine_id] = rubber_type
 
     def schedule_orders(self, start_date: datetime = None,
                         hot_list_entries: List[Dict] = None) -> List:
@@ -1102,56 +1216,96 @@ class DESScheduler:
 
     def _schedule_blast_arrivals(self, orders: List[Dict], start_date: datetime):
         """
-        Schedule BLAST arrivals at takt intervals, checking core availability.
-        Within the same priority tier, alternates between rubber types (XE/HR)
-        when possible. XD/XR orders are scheduled on Desma 5 (flex).
+        Schedule BLAST arrivals at takt intervals.
+
+        For each takt slot, scans the entire prioritized order pool:
+        1. Is there a core available for this order?
+        2. Will scheduling it cause a downstream injection bottleneck?
+        3. If both pass -> schedule. Otherwise try the next order.
+
+        A slot is only skipped if ALL remaining orders either have no
+        available core or would cause an injection bottleneck.
 
         Uses per-day takt times when day_configs are set (advanced mode).
         """
         # Ensure we start at a valid (unblocked) working time
         current_slot = self.work_config.next_unblocked_time(start_date)
-        last_rubber_type = None  # Track for alternation
+        last_rubber_type = None  # Track for rubber type alternation
 
         remaining_orders = orders.copy()
 
         while remaining_orders:
-            # Find an order whose core is available at this slot.
-            # Within the same priority tier, prefer alternating rubber types.
             scheduled_this_slot = False
+            all_blocked_by_bottleneck = False
 
-            # Determine the priority tier of the first remaining order
+            # Scan the entire pool by priority to find a schedulable order.
+            # Within the top priority tier, collect all candidates (for rubber
+            # alternation). If the top tier has no viable candidate, fall through
+            # to lower tiers one order at a time.
             first_priority = remaining_orders[0]['order'].get('priority', 'Normal')
 
-            # Collect candidates in the same priority tier with available cores
-            candidates = []  # List of (index, order_info, core, rubber_type)
+            # Phase 1: Collect candidates from the top priority tier
+            tier_candidates = []  # (index, order_info, core, rubber_type, machine_id)
+            tier_had_core_but_bottleneck = False
             for i, order_info in enumerate(remaining_orders):
                 if order_info['order'].get('priority', 'Normal') != first_priority:
-                    break  # Stop at the boundary of the next priority tier
+                    break  # End of top tier
 
                 core = self._find_available_core(order_info['core_number'], current_slot)
-                if core:
-                    rubber_type = self._get_rubber_type_for_order(order_info)
-                    candidates.append((i, order_info, core, rubber_type))
+                if not core:
+                    continue  # No core — try next in tier
 
-            # If no candidates in the top priority tier, check remaining orders
-            if not candidates:
+                rubber_type = self._get_rubber_type_for_order(order_info)
+                injection_time = (order_info['part_data'].get('injection_time')
+                                  if order_info['part_data'] else None) or 0.5
+
+                is_bottleneck, machine_id = self._check_injection_bottleneck(
+                    rubber_type, current_slot, injection_time)
+                if is_bottleneck:
+                    tier_had_core_but_bottleneck = True
+                    continue  # Bottleneck — try next in tier
+
+                tier_candidates.append((i, order_info, core, rubber_type, machine_id))
+
+            # Phase 2: If no candidates from top tier, scan ALL remaining orders
+            if not tier_candidates:
+                any_core_but_bottleneck = tier_had_core_but_bottleneck
                 for i, order_info in enumerate(remaining_orders):
-                    core = self._find_available_core(order_info['core_number'], current_slot)
-                    if core:
-                        rubber_type = self._get_rubber_type_for_order(order_info)
-                        candidates.append((i, order_info, core, rubber_type))
-                        break  # Take the first available from any tier
+                    # Skip orders we already checked in the top tier
+                    if order_info['order'].get('priority', 'Normal') == first_priority:
+                        continue
 
-            if candidates:
-                # Select the best candidate: prefer different rubber type from last
-                selected = candidates[0]  # Default: first available
-                if last_rubber_type and len(candidates) > 1:
-                    for candidate in candidates:
+                    core = self._find_available_core(order_info['core_number'], current_slot)
+                    if not core:
+                        continue
+
+                    rubber_type = self._get_rubber_type_for_order(order_info)
+                    injection_time = (order_info['part_data'].get('injection_time')
+                                      if order_info['part_data'] else None) or 0.5
+
+                    is_bottleneck, machine_id = self._check_injection_bottleneck(
+                        rubber_type, current_slot, injection_time)
+                    if is_bottleneck:
+                        any_core_but_bottleneck = True
+                        continue
+
+                    # Found a viable order from a lower tier
+                    tier_candidates.append((i, order_info, core, rubber_type, machine_id))
+                    break  # Take the first viable from lower tiers
+
+                if not tier_candidates:
+                    all_blocked_by_bottleneck = any_core_but_bottleneck
+
+            # Phase 3: Select the best candidate (prefer rubber alternation)
+            if tier_candidates:
+                selected = tier_candidates[0]
+                if last_rubber_type and len(tier_candidates) > 1:
+                    for candidate in tier_candidates:
                         if candidate[3] and candidate[3] != last_rubber_type:
                             selected = candidate
                             break
 
-                i, order_info, core, rubber_type = selected
+                i, order_info, core, rubber_type, machine_id = selected
                 order = order_info['order']
                 core_number = order_info['core_number']
                 part_data = order_info['part_data']
@@ -1172,6 +1326,8 @@ class DESScheduler:
                         current_slot, rework_lead_time_hours
                     )
 
+                injection_time = (part_data.get('injection_time') if part_data else None) or 0.5
+
                 part_state = PartState(
                     part_id=part_id,
                     wo_number=wo_number,
@@ -1182,7 +1338,7 @@ class DESScheduler:
                     rubber_type=rubber_type,
                     core_number=core_number,
                     core_suffix=core['suffix'],
-                    injection_time=(part_data.get('injection_time') if part_data else None) or 0.5,
+                    injection_time=injection_time,
                     cure_time=(part_data.get('cure_time') if part_data else None) or 1.5,
                     quench_time=(part_data.get('quench_time') if part_data else None) or 0.75,
                     disassembly_time=(part_data.get('disassembly_time') if part_data else None) or 0.5,
@@ -1203,6 +1359,11 @@ class DESScheduler:
                 self._assign_core(core_number, core['suffix'],
                                  wo_number, blast_time, part_data)
 
+                # Reserve injection machine slot for bottleneck tracking
+                if machine_id:
+                    self._reserve_injection_machine(
+                        machine_id, rubber_type, blast_time, injection_time)
+
                 # Schedule BLAST arrival event
                 event = SimEvent(
                     time=blast_time,
@@ -1215,14 +1376,20 @@ class DESScheduler:
                 remaining_orders.pop(i)
                 scheduled_this_slot = True
 
+            # Advance to next slot
             if scheduled_this_slot:
-                # Advance to next takt slot (use per-day takt if configured)
+                takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
+                current_slot = self.work_config.advance_time(
+                    current_slot, takt_minutes / 60.0
+                )
+            elif all_blocked_by_bottleneck:
+                # All orders have cores but injection is full — skip one takt slot
                 takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
                 current_slot = self.work_config.advance_time(
                     current_slot, takt_minutes / 60.0
                 )
             else:
-                # No order could be scheduled - find next core availability
+                # No cores available for any order — jump to earliest core return
                 earliest_avail = None
                 for order_info in remaining_orders:
                     avail = self._get_earliest_core_availability(order_info['core_number'])
@@ -1233,7 +1400,7 @@ class DESScheduler:
                         earliest_avail = avail
 
                 if earliest_avail is None:
-                    # No more orders can be scheduled - record hot list shortages
+                    # No cores will ever become available — record shortages and stop
                     for order_info in remaining_orders:
                         wo_number = order_info['order'].get('wo_number')
                         if wo_number in self.hot_list_lookup:
