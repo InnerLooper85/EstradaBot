@@ -1233,6 +1233,8 @@ class DESScheduler:
         last_rubber_type = None  # Track for rubber type alternation
 
         remaining_orders = orders.copy()
+        max_empty_slots = 500  # Safety: max consecutive empty takt slots before giving up
+        consecutive_empty = 0
 
         while remaining_orders:
             scheduled_this_slot = False
@@ -1267,13 +1269,19 @@ class DESScheduler:
 
                 tier_candidates.append((i, order_info, core, rubber_type, machine_id))
 
-            # Phase 2: If no candidates from top tier, scan ALL remaining orders
+            # Phase 2: If no candidates from top tier, scan remaining orders
+            # from OTHER priority tiers (orders already checked in Phase 1 are skipped)
             if not tier_candidates:
                 any_core_but_bottleneck = tier_had_core_but_bottleneck
-                for i, order_info in enumerate(remaining_orders):
-                    # Skip orders we already checked in the top tier
-                    if order_info['order'].get('priority', 'Normal') == first_priority:
-                        continue
+                # Find where the top tier ends in remaining_orders
+                top_tier_end = 0
+                for idx, oi in enumerate(remaining_orders):
+                    if oi['order'].get('priority', 'Normal') != first_priority:
+                        break
+                    top_tier_end = idx + 1
+
+                for i in range(top_tier_end, len(remaining_orders)):
+                    order_info = remaining_orders[i]
 
                     core = self._find_available_core(order_info['core_number'], current_slot)
                     if not core:
@@ -1378,12 +1386,19 @@ class DESScheduler:
 
             # Advance to next slot
             if scheduled_this_slot:
+                consecutive_empty = 0
                 takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
                 current_slot = self.work_config.advance_time(
                     current_slot, takt_minutes / 60.0
                 )
             elif all_blocked_by_bottleneck:
                 # All orders have cores but injection is full — skip one takt slot
+                consecutive_empty += 1
+                if consecutive_empty >= max_empty_slots:
+                    print(f"[WARN] Scheduling stopped: {consecutive_empty} consecutive "
+                          f"empty slots (injection bottleneck). {len(remaining_orders)} "
+                          f"orders unscheduled.")
+                    break
                 takt_minutes = self.work_config.get_takt_for_day(current_slot.weekday())
                 current_slot = self.work_config.advance_time(
                     current_slot, takt_minutes / 60.0
