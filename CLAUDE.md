@@ -98,13 +98,28 @@ EstradaBot/
 ## Key Conventions
 
 ### Git Workflow
-- **Main branch:** `master`
-- **Feature branches:** Create a new branch for each feature or fix
-- **Pull requests:** All changes to `master` go through a PR with review (for team members)
-- **Owner direct deploy:** When the project owner (InnerLooper85) explicitly requests a deploy during a Claude Code session, Claude may merge directly to `master` and push without creating a PR. This bypasses GitHub review for speed. All other contributors must still use PRs.
+- **Production branch:** `master` — auto-deploys to `estradabot` Cloud Run service
+- **Development branch:** `dev` — auto-deploys to `estradabot-dev` Cloud Run service
+- **Feature branches:** `feat/<description>` or `fix/<description>` — PR into `dev`
+- **Claude agent branches:** `claude/<description>` — PR into `dev`
+- **Pull requests:** All changes go through `dev` first, then `dev` merges into `master` for production
+- **Owner direct deploy:** When the project owner explicitly requests it, Claude may merge directly to `master` and push
 - **Commit messages:** Short, descriptive — explain the "why" not just the "what"
 - Never force push to `master`
-- Always pull the latest `master` before creating a new branch
+- Always pull the latest before creating a new branch
+
+### Dev Environment (Cloud)
+- **Dev Cloud Run service:** `estradabot-dev` (max 1 instance, scale-to-zero)
+- **Dev GCS bucket:** `gs://estradabot-files-dev` (isolated from production data)
+- **Dev deploys:** Automatic on push to `dev` branch (tests run first)
+- **Production deploys:** Automatic on push to `master` (tests run first)
+
+### Safe Update Workflow (MVP 2.0+)
+1. Create a feature branch from `dev`: `git checkout -b feat/my-feature dev`
+2. Develop and test locally: `pytest tests/ -v`
+3. Push and PR into `dev` — CI runs tests, auto-deploys to `estradabot-dev`
+4. Team verifies on the dev Cloud Run URL
+5. When ready: merge `dev` into `master` — CI runs tests, auto-deploys to production
 
 ### Code Style
 - Python code follows PEP 8

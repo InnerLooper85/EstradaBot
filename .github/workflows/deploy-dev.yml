@@ -1,0 +1,70 @@
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [dev]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          FLASK_ENV: testing
+          USE_LOCAL_STORAGE: "true"
+          SECRET_KEY: test-secret
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin
+        run: pytest tests/ -v
+
+  deploy-dev:
+    name: Deploy to Dev Cloud Run
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run (dev)
+        run: |
+          gcloud run deploy estradabot-dev \
+            --source . \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --set-env-vars "FLASK_ENV=development,USE_LOCAL_STORAGE=false,GCS_BUCKET=estradabot-files-dev,SECRET_KEY=${{ secrets.DEV_SECRET_KEY }},ADMIN_USERNAME=${{ secrets.DEV_ADMIN_USERNAME }},ADMIN_PASSWORD=${{ secrets.DEV_ADMIN_PASSWORD }},USERS=${{ secrets.DEV_USERS }},BEHIND_PROXY=true" \
+            --max-instances=1
+
+      - name: Show dev URL
+        run: |
+          URL=$(gcloud run services describe estradabot-dev \
+            --region us-central1 \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "Dev environment: $URL"
+          echo "::notice title=Dev URL::$URL"

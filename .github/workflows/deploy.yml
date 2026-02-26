@@ -10,8 +10,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          FLASK_ENV: testing
+          USE_LOCAL_STORAGE: "true"
+          SECRET_KEY: test-secret
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin
+        run: pytest tests/ -v
+
   deploy:
     name: Deploy to Google Cloud Run
+    needs: test
     runs-on: ubuntu-latest
 
     permissions:
