@@ -2079,30 +2079,38 @@ def _build_special_instructions(req):
 @login_required
 def get_special_requests():
     """Get all special requests, optionally filtered by status.
-    Auto-expires unmatched Mode B placeholders older than 28 days."""
+    Auto-expires unmatched Mode B placeholders older than 28 days.
+    Auto-purges any pending request older than 14 days."""
     status_filter = request.args.get('status')
     requests_list = gcs_storage.load_special_requests()
 
-    # Auto-expire unmatched Mode B placeholders after 28 days
     now = datetime.now()
     expired_count = 0
     for req in requests_list:
-        if (req.get('matched') is False
-                and req.get('status') == 'pending'
-                and req.get('submitted_at')):
-            try:
-                submitted = datetime.fromisoformat(req['submitted_at'])
-                if (now - submitted).days >= 28:
+        if req.get('status') != 'pending' or not req.get('submitted_at'):
+            continue
+        try:
+            submitted = datetime.fromisoformat(req['submitted_at'])
+            age_days = (now - submitted).days
+            if req.get('matched') is False:
+                # Unmatched Mode B placeholders get a 28-day grace period
+                if age_days >= 28:
                     req['status'] = 'expired'
                     req['expired_at'] = now.isoformat()
                     req['expiry_reason'] = 'Unmatched placeholder expired after 28 days'
                     expired_count += 1
-            except (ValueError, TypeError):
-                pass
+            elif age_days >= 14:
+                # All other pending requests: purge after 14 days
+                req['status'] = 'expired'
+                req['expired_at'] = now.isoformat()
+                req['expiry_reason'] = 'Pending request not processed within 14 days'
+                expired_count += 1
+        except (ValueError, TypeError):
+            pass
 
     if expired_count > 0:
         gcs_storage.save_special_requests(requests_list)
-        print(f"[SpecialRequests] Expired {expired_count} unmatched placeholder(s)")
+        print(f"[SpecialRequests] Expired {expired_count} stale pending request(s)")
 
     if status_filter:
         requests_list = [r for r in requests_list if r.get('status') == status_filter]
@@ -2504,6 +2512,32 @@ def simulate_with_requests():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/planner/file-hot-list', methods=['GET'])
+@login_required
+def get_file_hot_list():
+    """Return the file-based hot list entries from the current planner session."""
+    if current_user.role not in ('admin', 'planner'):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    loader = planner_state.get('loader')
+    if not loader or not loader.hot_list_entries:
+        return jsonify({'entries': []})
+
+    entries = []
+    for e in loader.hot_list_entries:
+        need_by = e.get('need_by_date')
+        entries.append({
+            'wo_number': e.get('wo_number', ''),
+            'is_asap': e.get('is_asap', False),
+            'need_by_date': need_by.strftime('%Y-%m-%d') if need_by else None,
+            'rubber_override': e.get('rubber_override'),
+            'comments': e.get('comments', ''),
+            'customer': e.get('customer', ''),
+            'description': e.get('description', ''),
+        })
+    return jsonify({'entries': entries})
+
+
 @app.route('/api/planner/approve-requests', methods=['POST'])
 @login_required
 def approve_requests():
@@ -2571,7 +2605,18 @@ def generate_final_schedule():
         all_requests = gcs_storage.load_special_requests()
         approved_requests = [r for r in all_requests if r.get('status') == 'approved']
 
-        combined_hot_list = list(loader.hot_list_entries) if loader.hot_list_entries else []
+        # Planner can optionally restrict which file hot list entries are included.
+        # If included_file_wos is provided, only include those WO numbers.
+        # If absent or None, include all file entries (default behaviour).
+        data = request.get_json(silent=True) or {}
+        included_file_wos = data.get('included_file_wos')  # list of WO strings, or None
+
+        file_entries = loader.hot_list_entries if loader.hot_list_entries else []
+        if included_file_wos is not None:
+            included_set = set(str(w) for w in included_file_wos)
+            file_entries = [e for e in file_entries if str(e.get('wo_number', '')) in included_set]
+
+        combined_hot_list = list(file_entries)
         for req in approved_requests:
             combined_hot_list.append({
                 'wo_number': req['wo_number'],

@@ -142,8 +142,34 @@
             </div>
         </div>
 
+        <!-- File Hot List Entries -->
+        <div id="fileHotListSection" style="display: none;">
+            <h6 class="mt-3 mb-1">
+                <i class="bi bi-file-earmark-spreadsheet text-warning"></i> Hot List from Excel File
+                <span class="badge bg-warning text-dark ms-1" id="fileHotListBadge">0</span>
+            </h6>
+            <p class="text-muted small mb-2">Uncheck entries to exclude them from the final schedule.</p>
+            <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                <table class="table table-sm table-hover" id="fileHotListTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th><input type="checkbox" id="selectAllFileHot" onchange="toggleAllFileHot(this)" checked></th>
+                            <th>WO#</th>
+                            <th>Priority</th>
+                            <th>Need By</th>
+                            <th>Rubber Override</th>
+                            <th>Comments</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fileHotListBody">
+                        <tr><td colspan="6" class="text-center text-muted">No file hot list entries.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Pending Requests List -->
-        <h6 class="mt-3 mb-2">Pending Requests</h6>
+        <h6 class="mt-3 mb-2">Pending Special Requests</h6>
         <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
             <table class="table table-sm table-hover" id="requestsTable">
                 <thead class="table-light">
@@ -471,6 +497,7 @@
     let scenarioData = {};
     let selectedScenario = null;
     let requestsData = [];
+    let fileHotListData = [];
 
     $(document).ready(function() {
         loadPlannerStatus();
@@ -809,6 +836,55 @@
                 $('#pendingBadge').text(requestsData.length + ' pending');
             })
             .catch(err => console.error('Failed to load requests:', err));
+        loadFileHotList();
+    }
+
+    function loadFileHotList() {
+        fetch('/api/planner/file-hot-list')
+            .then(r => r.json())
+            .then(data => {
+                fileHotListData = data.entries || [];
+                renderFileHotListTable(fileHotListData);
+                if (fileHotListData.length > 0) {
+                    $('#fileHotListSection').show();
+                    $('#fileHotListBadge').text(fileHotListData.length);
+                } else {
+                    $('#fileHotListSection').hide();
+                }
+            })
+            .catch(err => console.error('Failed to load file hot list:', err));
+    }
+
+    function renderFileHotListTable(entries) {
+        const tbody = $('#fileHotListBody');
+        tbody.empty();
+        if (entries.length === 0) {
+            tbody.append('<tr><td colspan="6" class="text-center text-muted">No file hot list entries.</td></tr>');
+            return;
+        }
+        entries.forEach(e => {
+            const priority = e.is_asap
+                ? '<span class="badge bg-danger">ASAP</span>'
+                : (e.need_by_date ? `<span class="badge bg-warning text-dark">${e.need_by_date}</span>` : '<span class="badge bg-secondary">-</span>');
+            tbody.append(`
+                <tr>
+                    <td><input type="checkbox" class="file-hot-checkbox" data-wo="${e.wo_number}" checked></td>
+                    <td><strong>${e.wo_number}</strong></td>
+                    <td>${priority}</td>
+                    <td>${e.need_by_date || '-'}</td>
+                    <td>${e.rubber_override || '-'}</td>
+                    <td>${(e.comments || '-').substring(0, 50)}</td>
+                </tr>
+            `);
+        });
+    }
+
+    function toggleAllFileHot(checkbox) {
+        $('.file-hot-checkbox').prop('checked', checkbox.checked);
+    }
+
+    function getIncludedFileWos() {
+        return $('.file-hot-checkbox:checked').map(function() { return $(this).data('wo'); }).get();
     }
 
     function renderRequestsTable(requests) {
@@ -971,7 +1047,7 @@
         fetch('/api/planner/generate-final', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
+            body: JSON.stringify({ included_file_wos: getIncludedFileWos() })
         })
         .then(r => r.json())
         .then(data => {
