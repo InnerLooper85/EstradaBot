@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-journal-text"></i> Update Log</h2>
-    <span class="badge bg-info fs-6">Current Version: MVP 1.10.4</span>
+    <span class="badge bg-info fs-6">Current Version: MVP 1.11</span>
 </div>
 
 <!-- Feedback Form -->
@@ -110,6 +110,24 @@
         <i class="bi bi-clock-history"></i> Version History
     </div>
     <div class="card-body">
+        <!-- MVP 1.11 -->
+        <div class="mb-4">
+            <h5>
+                <span class="badge bg-info">MVP 1.11</span>
+                <small class="text-muted ms-2">March 2026 - Excel Hot List Selection &amp; Stale Request Purge</small>
+            </h5>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item">
+                    <i class="bi bi-file-earmark-spreadsheet text-warning"></i>
+                    <strong>Excel hot list selection in planner workflow:</strong> Hot list entries loaded from an Excel file are now shown in Step 4 of the planner workflow with individual checkboxes. Uncheck any entry to exclude it from the final schedule without removing it from the file.
+                </li>
+                <li class="list-group-item">
+                    <i class="bi bi-trash text-danger"></i>
+                    <strong>Automatic purge of stale pending requests:</strong> Pending special requests that have not been reviewed within 14 days are now automatically expired. Unmatched Mode B placeholder requests retain a 28-day grace period. Approved, rejected, and published requests are never affected.
+                </li>
+            </ul>
+        </div>
+
         <!-- MVP 1.10.4 -->
         <div class="mb-4">
             <h5>
