@@ -824,6 +824,10 @@ def upload_file():
 
             # Drop all sheets except RawData (SAP exports include many extra tabs)
             target_sheet = 'RawData'
+            if target_sheet not in wb.sheetnames:
+                wb.close()
+                os.unlink(temp_path)
+                return jsonify({'error': f'Invalid file: expected a "RawData" sheet but found: {", ".join(wb.sheetnames)}'}), 400
             sheets_to_remove = [s for s in wb.sheetnames if s != target_sheet]
             for sheet_name in sheets_to_remove:
                 del wb[sheet_name]
