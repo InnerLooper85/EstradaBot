@@ -72,7 +72,7 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy estradabot \
+          gcloud run deploy ddschedulerbot \
             --source . \
             --region us-central1 \
             --allow-unauthenticated \
@@ -84,7 +84,7 @@ jobs:
       - name: Verify deployment
         run: |
           echo "Deployment complete. Verifying service is healthy..."
-          SERVICE_URL=$(gcloud run services describe estradabot \
+          SERVICE_URL=$(gcloud run services describe ddschedulerbot \
             --region us-central1 \
             --project ${{ secrets.GCP_PROJECT_ID }} \
             --format='value(status.url)')
