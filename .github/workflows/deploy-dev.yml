@@ -74,6 +74,7 @@ jobs:
             --project ${{ secrets.GCP_PROJECT_ID }} \
             --env-vars-file env-dev.yaml \
             --max-instances=1 \
+            --service-account=969733401480-compute@developer.gserviceaccount.com \
             --quiet
 
       - name: Show dev URL
