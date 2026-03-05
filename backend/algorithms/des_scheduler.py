@@ -704,7 +704,7 @@ class DESScheduler:
                  core_inventory: Dict, operations: Dict = None,
                  work_schedule: Any = None, working_days: List[int] = None,
                  shift_hours: int = 12, day_configs: Dict = None,
-                 takt_time_minutes: int = 30):
+                 takt_time_minutes: int = 30, wip_orders: List[Dict] = None):
         """
         Initialize the DES scheduler.
 
@@ -718,8 +718,11 @@ class DESScheduler:
             shift_hours: Shift length in hours (10 or 12). Defaults to 12.
             day_configs: Optional per-day shift configs (Dict[int, DayShiftConfig]).
             takt_time_minutes: Default takt time (1-120 min). Defaults to 30.
+            wip_orders: Orders currently in-process (already blasted, op >= 1300) used to
+                        pre-mark cores as in-use so the scheduler reflects real pipeline state.
         """
         self.orders = orders
+        self.wip_orders = wip_orders or []
         self.core_mapping = core_mapping
         self.core_inventory = self._init_core_inventory(core_inventory)
         self.operations = operations or {}
@@ -777,6 +780,100 @@ class DESScheduler:
     def _get_part_data(self, part_number: str) -> Optional[Dict]:
         """Get core mapping data for a part number."""
         return self.core_mapping.get(part_number)
+
+    def _initialize_wip_state(self, now: datetime):
+        """
+        Pre-mark cores for WIP orders currently in the production pipeline.
+
+        Orders in Shop Dispatch with op >= 1300 have already been blasted and are
+        flowing through injection/cure/quench. Their cores are physically in use and
+        must not be treated as available until the part returns from the pipeline.
+        """
+        marked = 0
+        for wip in self.wip_orders:
+            part_number = wip.get('part_number')
+            part_data = self._get_part_data(part_number)
+            if not part_data:
+                continue
+
+            core_num = part_data.get('core_number')
+            if not core_num:
+                continue
+            try:
+                core_number = int(float(core_num))
+            except (TypeError, ValueError):
+                continue
+
+            if core_number not in self.core_inventory:
+                continue
+
+            remaining_hours = self._estimate_remaining_hours(wip, part_data, now)
+            return_time = self.work_config.advance_time(
+                now, remaining_hours, continue_during_breaks=False
+            )
+
+            # Claim the first unclaimed core of this number
+            for core in self.core_inventory[core_number]:
+                if core['available_at'] is None:
+                    core['available_at'] = return_time
+                    core['assigned_to'] = wip.get('wo_number', 'WIP')
+                    marked += 1
+                    break
+
+        print(f"   WIP-aware init: pre-marked {marked} cores as in-use")
+
+    def _estimate_remaining_hours(self, wip: Dict, part_data: Dict, now: datetime) -> float:
+        """
+        Estimate how many more hours a WIP order will hold its core, based on
+        the current SAP operation number.
+
+        SAP operation map:
+          1300       = BLAST
+          1340-1360  = TUBE PREP / CORE OVEN / ASSEMBLY
+          1380       = INJECTION
+          1600       = CURE
+          1610       = QUENCH
+          1620+      = DISASSEMBLY, CUTBACK, INSPECT (core returned)
+        """
+        injection_time = float(part_data.get('injection_time') or 0.5)
+        cure_time = float(part_data.get('cure_time') or 1.5)
+        quench_time = float(part_data.get('quench_time') or 0.75)
+        post_cure = 1.25  # disassembly + cleanup before core is free
+
+        op_start = wip.get('operation_start_date')
+
+        def elapsed_hours() -> float:
+            if op_start and hasattr(op_start, 'timestamp'):
+                return max(0.0, (now - op_start).total_seconds() / 3600)
+            return 0.0
+
+        try:
+            op_num = int(float(wip.get('current_operation', 0)))
+        except (TypeError, ValueError):
+            op_num = 0
+
+        if op_num == 1380:
+            # Currently at INJECTION — estimate remaining injection time
+            remaining_inj = max(0.0, injection_time - elapsed_hours())
+            return remaining_inj + cure_time + quench_time + post_cure
+
+        elif op_num == 1600:
+            # Currently at CURE
+            remaining_cure = max(0.0, cure_time - elapsed_hours())
+            return remaining_cure + quench_time + post_cure
+
+        elif op_num == 1610:
+            # Currently at QUENCH
+            remaining_quench = max(0.0, quench_time - elapsed_hours())
+            return remaining_quench + post_cure
+
+        elif op_num >= 1620:
+            # DISASSEMBLY or later — core returned very soon
+            return post_cure
+
+        else:
+            # Op 1300-1360: just blasted, needs full downstream processing
+            return injection_time + cure_time + quench_time + post_cure
 
     def _generate_part_id(self) -> str:
         """Generate a unique part ID."""
@@ -1024,6 +1121,10 @@ class DESScheduler:
         if self.hot_list_entries:
             print(f"Hot list entries: {len(self.hot_list_entries)}")
         print(f"{'='*70}")
+
+        # Pre-mark cores for WIP orders currently in the production pipeline
+        if self.wip_orders:
+            self._initialize_wip_state(datetime.now())
 
         # Step 1: Classify orders
         schedulable, pending = self._classify_orders()
