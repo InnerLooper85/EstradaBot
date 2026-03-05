@@ -1,4 +1,4 @@
-# EstradaBot - Claude Code Project Instructions
+# DynaBot - Claude Code Project Instructions
 
 ## Session Startup (MANDATORY)
 
@@ -47,12 +47,12 @@ If the branch is behind remote or has merge conflicts, do NOT begin work until t
 
 ## Project Overview
 
-**EstradaBot** is a discrete event simulation (DES) based production scheduling web application for stator manufacturing. It is deployed on Google Cloud Run with persistent storage via Google Cloud Storage.
+**DynaBot** is a discrete event simulation (DES) based production scheduling web application for stator manufacturing. It is deployed on Google Cloud Run with persistent storage via Google Cloud Storage.
 
-- **Repository:** https://github.com/InnerLooper85/EstradaBot.git
-- **Live site:** https://estradabot.biz
-- **GCP Project:** project-20e62326-f8a0-47bc-be6
-- **GCS Bucket:** gs://estradabot-files
+- **Repository:** https://github.com/letscamu/ddschedulerbot.git
+- **Live site:** https://dynabot.biz
+- **GCP Project:** ddschedulerbot
+- **GCS Bucket:** gs://ddschedulerbot-files
 - **Region:** us-central1
 
 ---
@@ -71,7 +71,7 @@ If the branch is behind remote or has merge conflicts, do NOT begin work until t
 ## Project Structure
 
 ```
-EstradaBot/
+DynaBot/
 ├── backend/
 │   ├── app.py                  # Flask application entry point
 │   ├── gcs_storage.py          # GCS helper module
@@ -98,8 +98,8 @@ EstradaBot/
 ## Key Conventions
 
 ### Git Workflow
-- **Production branch:** `master` — auto-deploys to `estradabot` Cloud Run service
-- **Development branch:** `dev` — auto-deploys to `estradabot-dev` Cloud Run service
+- **Production branch:** `master` — auto-deploys to `ddschedulerbot` Cloud Run service
+- **Development branch:** `dev` — auto-deploys to `ddschedulerbot-dev` Cloud Run service
 - **Feature branches:** `feat/<description>` or `fix/<description>` — PR into `dev`
 - **Claude agent branches:** `claude/<description>` — PR into `dev`
 - **Pull requests:** All changes go through `dev` first, then `dev` merges into `master` for production
@@ -109,15 +109,15 @@ EstradaBot/
 - Always pull the latest before creating a new branch
 
 ### Dev Environment (Cloud)
-- **Dev Cloud Run service:** `estradabot-dev` (max 1 instance, scale-to-zero)
-- **Dev GCS bucket:** `gs://estradabot-files-dev` (isolated from production data)
+- **Dev Cloud Run service:** `ddschedulerbot-dev` (max 1 instance, scale-to-zero)
+- **Dev GCS bucket:** `gs://ddschedulerbot-files-dev` (isolated from production data)
 - **Dev deploys:** Automatic on push to `dev` branch (tests run first)
 - **Production deploys:** Automatic on push to `master` (tests run first)
 
 ### Safe Update Workflow (MVP 2.0+)
 1. Create a feature branch from `dev`: `git checkout -b feat/my-feature dev`
 2. Develop and test locally: `pytest tests/ -v`
-3. Push and PR into `dev` — CI runs tests, auto-deploys to `estradabot-dev`
+3. Push and PR into `dev` — CI runs tests, auto-deploys to `ddschedulerbot-dev`
 4. Team verifies on the dev Cloud Run URL
 5. When ready: merge `dev` into `master` — CI runs tests, auto-deploys to production
 
@@ -180,7 +180,7 @@ The app will be available at http://localhost:5000
 Deployment is done via Google Cloud Run from the repo root:
 
 ```bash
-gcloud run deploy estradabot --source . --region us-central1 --allow-unauthenticated
+gcloud run deploy ddschedulerbot --source . --region us-central1 --allow-unauthenticated
 ```
 
 ### Owner Direct Deploy (fast path)
@@ -203,7 +203,7 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 3. Create a PR and get it reviewed/approved
 4. Merge via GitHub
 5. Coordinate with the team — only one deploy at a time
-6. Verify the live site after deployment: https://estradabot.biz
+6. Verify the live site after deployment: https://dynabot.biz
 
 ---
 
@@ -223,7 +223,7 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 
 ## Versioning Protocol (MANDATORY for production releases)
 
-**Current Version:** MVP 1.10.4
+**Current Version:** MVP 2.0.0
 
 ### Version Numbering: `X.Y.Z`
 
@@ -239,7 +239,7 @@ When merging changes to `master` that will be deployed to production, you MUST:
    - Bump Y (1.8 → 1.9) for feature additions, reset Z to 0
    - Bump X (1.x → 2.0) only when the product owner declares a new major release
 
-2. **Update the Update Log page** in `backend/templates/update_log.html`
+2. **Update the Flies and Swatters page** in `backend/templates/update_log.html`
    - Add a new version section at the top of the "Version History" card (above the previous version)
    - Include the version badge, date, and a short release name
    - List each change as a `<li class="list-group-item">` with a description
