@@ -44,9 +44,10 @@ class WorkScheduleConfig:
     - Configurable working days (e.g., Mon-Thu or Mon-Fri)
     - Per-day configurations (full/skeleton, day/night/both, takt override)
     - Handover: 30 minutes at shift start
-    - Breaks adjusted per shift length
+    - Breaks: 15 min at 9:00/15:00 (day), 21:00/3:00 (night)
+    - Lunch: 45 min at 11:00-11:45 (day), 23:00-23:45 (night)
     """
-    working_days: List[int] = field(default_factory=lambda: [0, 1, 2, 3])  # Mon-Thu
+    working_days: List[int] = field(default_factory=lambda: [0, 1, 2, 3])  # Mon-Thu (4-day default)
     shift_hours: int = 12  # 10 or 12 hour shifts
     shift1_start: int = 5   # 5 AM
     shift1_end: int = 17    # 5 PM (computed from shift_hours if using factory)
@@ -204,6 +205,7 @@ class WorkScheduleConfig:
             return [(day_start, day_end)]
 
         day_start = datetime.combine(date, datetime.min.time())
+        # Day shift handover (5:00-5:30)
         shift1_start = datetime.combine(date, datetime.min.time().replace(hour=self.shift1_start))
 
         # Per-day shift awareness
@@ -630,8 +632,9 @@ class PartState:
     description: str
     customer: str
     is_reline: bool
-    rubber_type: Optional[str]
-    core_number: Optional[int]
+    serial_number: Optional[str] = None  # MVP 1.1
+    rubber_type: Optional[str] = None
+    core_number: Optional[int] = None
     core_suffix: Optional[str] = None
 
     # Part-specific times
@@ -1637,7 +1640,8 @@ class DESScheduler:
                 )
                 operations.append(sched_op)
 
-            # Calculate turnaround: Completion Date - WO Creation Date
+            # Calculate turnaround: Completion Date - WO Creation Date (for all order types)
+            # MVP 1.1: Unified turnaround logic (Pegging Report eliminated)
             turnaround_days = None
             if part.completion_time:
                 try:
@@ -1661,6 +1665,7 @@ class DESScheduler:
                 description=part.description,
                 customer=part.customer,
                 is_reline=part.is_reline,
+                serial_number=part.serial_number,
                 assigned_core=f"{part.core_number}-{part.core_suffix}" if part.core_number else None,
                 rubber_type=part.rubber_type,
                 operations=operations,

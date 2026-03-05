@@ -128,6 +128,8 @@ class DataLoader:
         print(f"  [OK] Loaded {len(self.shop_dispatch_orders)} orders from Shop Dispatch")
         return True
 
+    # Pegging Report loading removed in MVP 1.1 — turnaround now uses creation_date for all orders
+
     def load_hot_list(self, filepath: Optional[str] = None) -> bool:
         """
         Load Hot List data for priority scheduling.
@@ -281,8 +283,11 @@ class DataLoader:
 
             print(f"\n[OK] Total orders after merge: {len(self.orders)}")
 
-            # 3b. Load Hot List for priority scheduling
-            print("\n[3b/6] Loading Hot List...")
+            # 3b. Pegging Report — REMOVED in MVP 1.1
+            # Turnaround now uses creation_date for all orders (relines and new stators)
+
+            # 3c. Load Hot List for priority scheduling
+            print("\n[3b/5] Loading Hot List...")
             self.load_hot_list()
 
             # 3c. Load DCP Report for supermarket locations (optional)

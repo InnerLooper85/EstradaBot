@@ -105,7 +105,20 @@ current_schedule = {
     'baseline_orders': [],
     'generated_at': None,
     'reports': {},
-    'stats': {}
+    'stats': {},
+    'is_published': False  # MVP 1.1: Draft until published by Planner/Admin
+}
+
+# MVP 1.1: Published schedule (separate from current draft)
+published_schedule = {
+    'serialized_orders': [],
+    'serialized_orders_5day': [],
+    'stats': {},
+    'stats_5day': {},
+    'reports': {},
+    'generated_at': None,
+    'published_at': None,
+    'published_by': None
 }
 
 # Planner workflow state — holds draft scenarios and in-progress schedule
