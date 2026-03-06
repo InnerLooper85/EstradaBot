@@ -32,6 +32,7 @@ class DataLoader:
         self.orders = []
         self.shop_dispatch_orders = []
         self.wip_in_process_orders = []
+        self.on_blaster_orders = []
         self.excluded_orders = []
         self.core_mapping = {}
         self.core_inventory = {}
@@ -125,7 +126,7 @@ class DataLoader:
             return False
 
         print(f"  Loading: {dispatch_file.name}")
-        self.shop_dispatch_orders, self.wip_in_process_orders, dispatch_excluded = parse_shop_dispatch(str(dispatch_file))
+        self.shop_dispatch_orders, self.wip_in_process_orders, self.on_blaster_orders, dispatch_excluded = parse_shop_dispatch(str(dispatch_file))
         self.excluded_orders.extend(dispatch_excluded)
 
         print(f"  [OK] Loaded {len(self.shop_dispatch_orders)} orders from Shop Dispatch")
@@ -289,16 +290,27 @@ class DataLoader:
             # 3b. Pegging Report — REMOVED in MVP 1.1
             # Turnaround now uses creation_date for all orders (relines and new stators)
 
-            # Remove already-blasted WIP orders from the blast queue.
-            # These remain in Open Sales Orders (SAP keeps them open until TECO)
-            # but they should not receive new blast dates — they're already in the pipeline.
+            # Remove post-blast WIP orders (op > 1300) from the blast queue.
+            # These are in the injection/cure/quench pipeline — cores are occupied.
             if self.wip_in_process_orders:
                 wip_wo_numbers = {o['wo_number'] for o in self.wip_in_process_orders}
                 before = len(self.orders)
                 self.orders = [o for o in self.orders if o.get('wo_number') not in wip_wo_numbers]
                 removed = before - len(self.orders)
                 if removed > 0:
-                    print(f"  Removed {removed} already-blasted WIP orders from blast queue")
+                    print(f"  Removed {removed} post-blast WIP orders from blast queue (cores occupied)")
+
+            # Mark on-blaster orders (op == 1300) as priority 0.
+            # These are physically on the blaster right now — cores are available.
+            # They stay in the blast queue but sort before everything else.
+            if self.on_blaster_orders:
+                on_blaster_wos = {o['wo_number'] for o in self.on_blaster_orders}
+                marked = 0
+                for order in self.orders:
+                    if order.get('wo_number') in on_blaster_wos:
+                        order['priority'] = 'On Blaster'
+                        marked += 1
+                print(f"  Marked {marked} on-blaster orders as priority 0")
 
             # 3c. Load Hot List for priority scheduling
             print("\n[3b/5] Loading Hot List...")

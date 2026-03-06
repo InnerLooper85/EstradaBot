@@ -791,6 +791,14 @@ class DESScheduler:
         """
         marked = 0
         for wip in self.wip_orders:
+            # Op 1300 = currently on blaster, core is available — scheduled as priority 0
+            try:
+                wip_op = int(float(wip.get('current_operation', 0)))
+            except (TypeError, ValueError):
+                wip_op = 0
+            if wip_op == 1300:
+                continue
+
             part_number = wip.get('part_number')
             part_data = self._get_part_data(part_number)
             if not part_data:
@@ -871,8 +879,21 @@ class DESScheduler:
             # DISASSEMBLY or later — core returned very soon
             return post_cure
 
+        elif op_num == 1340:
+            # Currently at TUBE PREP — blast done, still needs tube prep + downstream
+            tube_prep_time = 3.5
+            assembly_time = 0.2
+            remaining_tube_prep = max(0.0, tube_prep_time - elapsed_hours())
+            return remaining_tube_prep + assembly_time + injection_time + cure_time + quench_time + post_cure
+
+        elif op_num == 1360:
+            # Currently at ASSEMBLY — tube prep done, still needs assembly + downstream
+            assembly_time = 0.2
+            remaining_assembly = max(0.0, assembly_time - elapsed_hours())
+            return remaining_assembly + injection_time + cure_time + quench_time + post_cure
+
         else:
-            # Op 1300-1360: just blasted, needs full downstream processing
+            # Unknown op (e.g. 1300 — should have been filtered in _initialize_wip_state)
             return injection_time + cure_time + quench_time + post_cure
 
     def _generate_part_id(self) -> str:
@@ -1262,6 +1283,7 @@ class DESScheduler:
                 return (1, need_by_ts, date_req_ts, row_position)
 
         # Categorize orders
+        on_blaster_orders = []
         hot_list_asap = []
         hot_list_dated = []
         rework_orders = []
@@ -1272,8 +1294,12 @@ class DESScheduler:
             wo_number = o['order'].get('wo_number')
             customer = o['order'].get('customer', '') or ''
             is_rework = o['order'].get('is_rework', False)
+            existing_priority = o['order'].get('priority', '')
 
-            if wo_number in hot_list_lookup:
+            if existing_priority == 'On Blaster':
+                # Priority 0 — already on the blaster, locked in sequence
+                on_blaster_orders.append(o)
+            elif wo_number in hot_list_lookup:
                 entry = hot_list_lookup[wo_number]
                 # Propagate special_instructions from hot list/app requests
                 if entry.get('special_instructions'):
@@ -1294,7 +1320,7 @@ class DESScheduler:
                 o['order']['priority'] = 'Normal'
                 normal_orders.append(o)
 
-        # Sort each category
+        # Sort each category (on_blaster keeps its SDR order — already locked in sequence)
         hot_list_asap.sort(key=get_hot_list_sort_key)
         hot_list_dated.sort(key=get_hot_list_sort_key)
         rework_orders.sort(key=get_created_on)
@@ -1302,13 +1328,14 @@ class DESScheduler:
         cavo_orders.sort(key=get_created_on)
 
         print(f"   Priority breakdown:")
+        print(f"      On Blaster (priority 0): {len(on_blaster_orders)}")
         print(f"      Hot List ASAP: {len(hot_list_asap)}")
         print(f"      Hot List Dated: {len(hot_list_dated)}")
         print(f"      Rework: {len(rework_orders)}")
         print(f"      Normal: {len(normal_orders)}")
         print(f"      CAVO (low priority): {len(cavo_orders)}")
 
-        return hot_list_asap + hot_list_dated + rework_orders + normal_orders + cavo_orders
+        return on_blaster_orders + hot_list_asap + hot_list_dated + rework_orders + normal_orders + cavo_orders
 
     def _get_rubber_type_for_order(self, order_info: Dict) -> Optional[str]:
         """Get the effective rubber type for an order (including hot list override)."""
