@@ -670,6 +670,10 @@ class PartState:
     # Days idle (from Shop Dispatch "Elapsed Days")
     days_idle: Optional[int] = None
 
+    # Current SAP operation (from Shop Dispatch — blank for OSO-only orders)
+    current_operation: Optional[str] = None
+    current_work_center: Optional[str] = None
+
     # Priority tier
     priority: str = 'Normal'  # Hot-ASAP, Hot-Dated, Rework, Normal, CAVO
 
@@ -1494,7 +1498,9 @@ class DESScheduler:
                     priority=order.get('priority', 'Normal'),
                     special_instructions=order.get('special_instructions'),
                     supermarket_location=order.get('supermarket_location'),
-                    days_idle=order.get('days_idle')
+                    days_idle=order.get('days_idle'),
+                    current_operation=str(order.get('current_operation')) if order.get('current_operation') is not None else None,
+                    current_work_center=str(order.get('current_work_center')) if order.get('current_work_center') else None
                 )
 
                 self.parts[part_id] = part_state
@@ -1814,7 +1820,9 @@ class DESScheduler:
                 priority=part.priority,
                 special_instructions=part.special_instructions,
                 supermarket_location=part.supermarket_location,
-                days_idle=part.days_idle
+                days_idle=part.days_idle,
+                current_operation=part.current_operation,
+                current_work_center=part.current_work_center
             )
 
             self.scheduled_orders.append(scheduled)

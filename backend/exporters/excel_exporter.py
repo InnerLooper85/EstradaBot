@@ -137,7 +137,9 @@ def export_blast_schedule(scheduled_orders: List, output_path: str,
             'Core Required': order.assigned_core,
             'Supermarket Location': getattr(order, 'supermarket_location', '') or '',
             'Special Instructions': getattr(order, 'special_instructions', '') or '',
-            'Planned Desma': getattr(order, 'planned_desma', '') or ''
+            'Planned Desma': getattr(order, 'planned_desma', '') or '',
+            'Curr. Op#': getattr(order, 'current_operation', '') or '',
+            'Curr. Work Center': getattr(order, 'current_work_center', '') or ''
         }
         if reorder_sequence:
             row['Manual Override'] = 'Yes'
