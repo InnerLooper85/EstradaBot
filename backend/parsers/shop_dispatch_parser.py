@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from .order_filters import classify_product_type, should_exclude_order
+from .order_filters import classify_product_type, should_exclude_order, normalize_wo_number
 
 
 def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List[Dict[str, Any]], List[tuple]]:
@@ -68,7 +68,7 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
                         op_num = int(operation)
                         if op_num >= 1300 and not is_rework:
                             skipped_operation += 1
-                            wo_num = str(row.get('Order', '')).strip() if pd.notna(row.get('Order')) else None
+                            wo_num = normalize_wo_number(row.get('Order'))
                             pn = str(row.get('Material', '')).strip() if pd.notna(row.get('Material')) else None
                             if wo_num:
                                 wip_order = {
@@ -98,7 +98,7 @@ def parse_shop_dispatch(filepath: str, sheet_name: str = 'Sheet1') -> tuple[List
                         pass
 
                 # Extract fields
-                wo_number = str(row.get('Order', '')).strip() if pd.notna(row.get('Order')) else None
+                wo_number = normalize_wo_number(row.get('Order'))
                 part_number = str(row.get('Material', '')).strip() if pd.notna(row.get('Material')) else None
                 description = row.get('Description') if pd.notna(row.get('Description')) else None
 

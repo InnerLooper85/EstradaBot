@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import re
 
-from .order_filters import classify_product_type, should_exclude_order
+from .order_filters import classify_product_type, should_exclude_order, normalize_wo_number
 
 
 def extract_part_number_from_description(description: str) -> Optional[str]:
@@ -66,14 +66,7 @@ def parse_open_sales_order(filepath: str, sheet_name: str = 'OSO') -> List[Dict[
                 description = row.get('Material Description')
                 supply_source = row.get('Supply Source') if pd.notna(row.get('Supply Source')) else None
 
-                # Normalize WO number (remove .0 suffix from float conversion)
-                wo_number = None
-                if pd.notna(row.get('Work Order')):
-                    wo_raw = row['Work Order']
-                    if isinstance(wo_raw, float):
-                        wo_number = str(int(wo_raw))
-                    else:
-                        wo_number = str(wo_raw).replace('.0', '')
+                wo_number = normalize_wo_number(row.get('Work Order'))
 
                 # Create order dictionary using actual column names from SAP export
                 order = {

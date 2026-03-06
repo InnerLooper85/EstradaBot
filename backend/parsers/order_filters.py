@@ -7,6 +7,24 @@ import re
 from typing import Optional
 
 
+def normalize_wo_number(raw) -> Optional[str]:
+    """
+    Normalize a WO number to a clean integer string (e.g. '3000354899').
+
+    Handles floats from Excel reads ('3000354899.0'), padded strings, and None.
+    Used by all parsers to ensure consistent WO# format for cross-file matching.
+    """
+    if raw is None:
+        return None
+    raw_str = str(raw).strip()
+    if not raw_str or raw_str.lower() == 'nan':
+        return None
+    try:
+        return str(int(float(raw_str)))
+    except (ValueError, TypeError):
+        return raw_str or None
+
+
 def classify_product_type(part_number: Optional[str], description: Optional[str] = None) -> Optional[str]:
     """
     Classify an order's product type based on part number.

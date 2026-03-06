@@ -944,16 +944,20 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
     # Export reports
     reports = {}
 
+    # Orders that were parsed but not scheduled (no core match, core fully occupied, etc.)
+    scheduled_wo_set = {o.wo_number for o in scheduled_orders}
+    unscheduled_orders = [o for o in loader.orders if o.get('wo_number') not in scheduled_wo_set]
+
     master_filename = f'Master_Schedule_{mode_label}_{timestamp}.xlsx'
     master_path = os.path.join(temp_dir, master_filename)
-    export_master_schedule(scheduled_orders, master_path)
+    export_master_schedule(scheduled_orders, master_path, unscheduled_orders=unscheduled_orders)
     gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
     reports['master'] = master_filename
 
     blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
     blast_path = os.path.join(temp_dir, blast_filename)
     # Op 1300 orders now appear in the main schedule as priority 0 — no WIP prepend needed
-    export_blast_schedule(scheduled_orders, blast_path)
+    export_blast_schedule(scheduled_orders, blast_path, unscheduled_orders=unscheduled_orders)
     gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
     reports['blast'] = blast_filename
 
@@ -2700,14 +2704,16 @@ def generate_final_schedule():
         master_filename = f'Master_Schedule_{mode_label}_{timestamp}.xlsx'
         master_path = os.path.join(temp_dir, master_filename)
         from exporters.excel_exporter import export_master_schedule, export_blast_schedule, export_core_schedule, export_pending_core_report
-        export_master_schedule(final_orders, master_path)
+        final_wo_set = {o.wo_number for o in final_orders}
+        unscheduled_orders = [o for o in loader.orders if o.get('wo_number') not in final_wo_set]
+        export_master_schedule(final_orders, master_path, unscheduled_orders=unscheduled_orders)
         gcs_storage.upload_file(master_path, master_filename, gcs_storage.OUTPUTS_FOLDER)
         reports['master'] = master_filename
 
         blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
         blast_path = os.path.join(temp_dir, blast_filename)
         # Op 1300 orders now appear in the main schedule as priority 0 — no WIP prepend needed
-        export_blast_schedule(final_orders, blast_path)
+        export_blast_schedule(final_orders, blast_path, unscheduled_orders=unscheduled_orders)
         gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
         reports['blast'] = blast_filename
 

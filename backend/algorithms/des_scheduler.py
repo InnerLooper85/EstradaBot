@@ -1474,6 +1474,12 @@ class DESScheduler:
                     blast_time = self.work_config.advance_time(
                         current_slot, rework_lead_time_hours
                     )
+                else:
+                    pre_blast_delay = order.get('pre_blast_delay_hours') or 0
+                    if pre_blast_delay > 0:
+                        blast_time = self.work_config.advance_time(
+                            current_slot, pre_blast_delay
+                        )
 
                 injection_time = (part_data.get('injection_time') if part_data else None) or 0.5
 

@@ -312,6 +312,28 @@ class DataLoader:
                         marked += 1
                 print(f"  Marked {marked} on-blaster orders as priority 0")
 
+            # Stamp pre-blast delay hours based on current OSO operation.
+            # Derived from Stators Process VSM standard cycle + setup times.
+            # Represents remaining pipeline time until the part is blast-ready.
+            PRE_BLAST_DELAY_BY_OP = {
+                '900':  2.25,  # RECEIVE TUBE: 0.25 + 1.0 + 0.25 + 0.5 + 0.25
+                '940':  2.0,   # COUNTERBORE: 1.0 + 0.25 + 0.5 + 0.25
+                '1220': 1.0,   # INDUCTION COIL: 0.25 + 0.5 + 0.25
+                '1240': 0.75,  # STAMPING & INSPECTION: 0.5 + 0.25
+                '1260': 0.25,  # TRANSFER TO SUPERMARKET
+                '1280': 0.0,   # SUPERMARKET (ready to blast)
+            }
+            pre_blast_stamped = 0
+            for order in self.orders:
+                if order.get('is_rework'):
+                    continue  # Rework has its own lead time
+                op_num = str(order.get('oso_op_number') or '').strip()
+                if op_num in PRE_BLAST_DELAY_BY_OP:
+                    order['pre_blast_delay_hours'] = PRE_BLAST_DELAY_BY_OP[op_num]
+                    pre_blast_stamped += 1
+            if pre_blast_stamped > 0:
+                print(f"  Stamped pre-blast delays on {pre_blast_stamped} orders")
+
             # 3c. Load Hot List for priority scheduling
             print("\n[3b/5] Loading Hot List...")
             self.load_hot_list()

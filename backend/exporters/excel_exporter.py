@@ -13,7 +13,37 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
+def _write_unscheduled_tab(writer, unscheduled_orders: List[Dict]) -> None:
+    """Write the Unscheduled Orders tab to an open ExcelWriter."""
+    if not unscheduled_orders:
+        rows = [{'WO#': '(none)', 'Part Number': '', 'Description': '',
+                 'Customer': '', 'Core#': '', 'Priority': '', 'Current Op#': '', 'Notes': ''}]
+    else:
+        rows = []
+        for o in unscheduled_orders:
+            rows.append({
+                'WO#': o.get('wo_number', ''),
+                'Part Number': o.get('part_number', ''),
+                'Description': str(o.get('description', '') or '')[:60],
+                'Customer': o.get('customer', '') or '',
+                'Core#': o.get('core_number', '') or '',
+                'Priority': o.get('priority', 'Normal'),
+                'Current Op#': o.get('oso_op_number', '') or '',
+                'Notes': o.get('unscheduled_reason', ''),
+            })
+    df = pd.DataFrame(rows)
+    df.to_excel(writer, sheet_name='Unscheduled Orders', index=False)
+    ws = writer.sheets['Unscheduled Orders']
+    from openpyxl.utils import get_column_letter
+    for idx, col in enumerate(df.columns):
+        col_data = df[col].fillna('').astype(str)
+        max_len = max(col_data.str.len().max() if len(col_data) > 0 else 0, len(col)) + 2
+        ws.column_dimensions[get_column_letter(idx + 1)].width = min(max_len, 50)
+    ws.freeze_panes = 'A2'
+
+
+def export_master_schedule(scheduled_orders: List, output_path: str,
+                           unscheduled_orders: List[Dict] = None) -> str:
     """
     Export the master schedule to Excel.
 
@@ -70,13 +100,18 @@ def export_master_schedule(scheduled_orders: List, output_path: str) -> str:
         # Freeze top row
         worksheet.freeze_panes = 'A2'
 
+        # Unscheduled Orders tab
+        if unscheduled_orders is not None:
+            _write_unscheduled_tab(writer, unscheduled_orders)
+
     print(f"[OK] Master schedule exported to: {output_path}")
     return output_path
 
 
 def export_blast_schedule(scheduled_orders: List, output_path: str,
                           reorder_sequence: List = None,
-                          currently_blasting: List = None) -> str:
+                          currently_blasting: List = None,
+                          unscheduled_orders: List[Dict] = None) -> str:
     """
     Export the BLAST operation schedule (printable).
     If reorder_sequence is provided, orders are sorted by that sequence
@@ -161,6 +196,10 @@ def export_blast_schedule(scheduled_orders: List, output_path: str,
             worksheet.column_dimensions[get_column_letter(idx + 1)].width = min(max_length, 30)
 
         worksheet.freeze_panes = 'A2'
+
+        # Unscheduled Orders tab
+        if unscheduled_orders is not None:
+            _write_unscheduled_tab(writer, unscheduled_orders)
 
     print(f"[OK] BLAST schedule exported to: {output_path}")
     return output_path
