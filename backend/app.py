@@ -105,7 +105,20 @@ current_schedule = {
     'baseline_orders': [],
     'generated_at': None,
     'reports': {},
-    'stats': {}
+    'stats': {},
+    'is_published': False  # MVP 1.1: Draft until published by Planner/Admin
+}
+
+# MVP 1.1: Published schedule (separate from current draft)
+published_schedule = {
+    'serialized_orders': [],
+    'serialized_orders_5day': [],
+    'stats': {},
+    'stats_5day': {},
+    'reports': {},
+    'generated_at': None,
+    'published_at': None,
+    'published_by': None
 }
 
 # Planner workflow state — holds draft scenarios and in-progress schedule
@@ -903,7 +916,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
         core_inventory=loader.core_inventory,
         working_days=working_days,
         shift_hours=shift_hours,
-        day_configs=day_configs
+        day_configs=day_configs,
+        wip_orders=loader.wip_in_process_orders
     )
 
     # Run baseline schedule (without hot list)
@@ -919,7 +933,8 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
             core_inventory=loader.core_inventory,
             working_days=working_days,
             shift_hours=shift_hours,
-            day_configs=day_configs
+            day_configs=day_configs,
+            wip_orders=loader.wip_in_process_orders
         )
         scheduled_orders = scheduler_with_hot.schedule_orders(
             hot_list_entries=loader.hot_list_entries
@@ -937,7 +952,7 @@ def _run_schedule_mode(loader, working_days, mode_label, temp_dir, timestamp,
 
     blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
     blast_path = os.path.join(temp_dir, blast_filename)
-    export_blast_schedule(scheduled_orders, blast_path)
+    export_blast_schedule(scheduled_orders, blast_path, currently_blasting=loader.wip_in_process_orders)
     gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
     reports['blast'] = blast_filename
 
@@ -2279,7 +2294,8 @@ def impact_preview():
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=config['working_days'],
-            shift_hours=config['shift_hours']
+            shift_hours=config['shift_hours'],
+            wip_orders=loader.wip_in_process_orders
         )
         baseline_orders = scheduler_baseline.schedule_orders()
 
@@ -2306,7 +2322,8 @@ def impact_preview():
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=config['working_days'],
-            shift_hours=config['shift_hours']
+            shift_hours=config['shift_hours'],
+            wip_orders=loader.wip_in_process_orders
         )
         orders_with = scheduler_with.schedule_orders(hot_list_entries=preview_hot_list)
 
@@ -2415,7 +2432,8 @@ def simulate_with_requests():
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=config['working_days'],
-            shift_hours=config['shift_hours']
+            shift_hours=config['shift_hours'],
+            wip_orders=loader.wip_in_process_orders
         )
         scheduled_with_requests = scheduler_with_requests.schedule_orders(
             hot_list_entries=combined_hot_list
@@ -2658,7 +2676,8 @@ def generate_final_schedule():
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=config['working_days'],
-            shift_hours=config['shift_hours']
+            shift_hours=config['shift_hours'],
+            wip_orders=loader.wip_in_process_orders
         )
         baseline_orders = scheduler_baseline.schedule_orders()
 
@@ -2668,7 +2687,8 @@ def generate_final_schedule():
             core_mapping=loader.core_mapping,
             core_inventory=loader.core_inventory,
             working_days=config['working_days'],
-            shift_hours=config['shift_hours']
+            shift_hours=config['shift_hours'],
+            wip_orders=loader.wip_in_process_orders
         )
         final_orders = scheduler_final.schedule_orders(hot_list_entries=combined_hot_list)
 
@@ -2685,7 +2705,7 @@ def generate_final_schedule():
 
         blast_filename = f'BLAST_Schedule_{mode_label}_{timestamp}.xlsx'
         blast_path = os.path.join(temp_dir, blast_filename)
-        export_blast_schedule(final_orders, blast_path)
+        export_blast_schedule(final_orders, blast_path, currently_blasting=loader.wip_in_process_orders)
         gcs_storage.upload_file(blast_path, blast_filename, gcs_storage.OUTPUTS_FOLDER)
         reports['blast'] = blast_filename
 

@@ -31,6 +31,7 @@ class DataLoader:
         self.data_dir = Path(data_dir)
         self.orders = []
         self.shop_dispatch_orders = []
+        self.wip_in_process_orders = []
         self.excluded_orders = []
         self.core_mapping = {}
         self.core_inventory = {}
@@ -86,7 +87,9 @@ class DataLoader:
             exclusion_reason = should_exclude_order(
                 order.get('part_number'),
                 order.get('description'),
-                order.get('supply_source')
+                order.get('supply_source'),
+                order.get('work_order_status'),
+                order.get('current_operation')
             )
 
             if exclusion_reason:
@@ -122,11 +125,13 @@ class DataLoader:
             return False
 
         print(f"  Loading: {dispatch_file.name}")
-        self.shop_dispatch_orders, dispatch_excluded = parse_shop_dispatch(str(dispatch_file))
+        self.shop_dispatch_orders, self.wip_in_process_orders, dispatch_excluded = parse_shop_dispatch(str(dispatch_file))
         self.excluded_orders.extend(dispatch_excluded)
 
         print(f"  [OK] Loaded {len(self.shop_dispatch_orders)} orders from Shop Dispatch")
         return True
+
+    # Pegging Report loading removed in MVP 1.1 — turnaround now uses creation_date for all orders
 
     def load_hot_list(self, filepath: Optional[str] = None) -> bool:
         """
@@ -281,8 +286,22 @@ class DataLoader:
 
             print(f"\n[OK] Total orders after merge: {len(self.orders)}")
 
-            # 3b. Load Hot List for priority scheduling
-            print("\n[3b/6] Loading Hot List...")
+            # 3b. Pegging Report — REMOVED in MVP 1.1
+            # Turnaround now uses creation_date for all orders (relines and new stators)
+
+            # Remove already-blasted WIP orders from the blast queue.
+            # These remain in Open Sales Orders (SAP keeps them open until TECO)
+            # but they should not receive new blast dates — they're already in the pipeline.
+            if self.wip_in_process_orders:
+                wip_wo_numbers = {o['wo_number'] for o in self.wip_in_process_orders}
+                before = len(self.orders)
+                self.orders = [o for o in self.orders if o.get('wo_number') not in wip_wo_numbers]
+                removed = before - len(self.orders)
+                if removed > 0:
+                    print(f"  Removed {removed} already-blasted WIP orders from blast queue")
+
+            # 3c. Load Hot List for priority scheduling
+            print("\n[3b/5] Loading Hot List...")
             self.load_hot_list()
 
             # 3c. Load DCP Report for supermarket locations (optional)

@@ -214,6 +214,7 @@ class ScheduledOrder:
     description: str
     customer: str
     is_reline: bool
+    serial_number: str = None  # MVP 1.1: From Open Sales Order
     assigned_core: str = None  # e.g., "427-A"
     rubber_type: str = None
     operations: List[ScheduledOperation] = field(default_factory=list)
