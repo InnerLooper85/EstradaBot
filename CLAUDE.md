@@ -207,6 +207,16 @@ When the project owner says "deploy", "merge and deploy", "push to production", 
 
 ---
 
+## Debugging Workflow
+
+When the developer says "I am debugging" or "let's debug" or similar, **always remind them**:
+
+> "Want me to pull bug reports from the site first? Run `python tools/feedback_pipeline.py fetch --category 'Bug Report'`"
+
+This ensures real user-reported bugs inform the debugging session before diving into code.
+
+---
+
 ## Common Tasks Reference
 
 | Task | Where to look |

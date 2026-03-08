@@ -39,7 +39,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-# Load .env if present
+# Check for --prod flag before loading .env so we can override storage config
+_use_prod = '--prod' in sys.argv
+if _use_prod:
+    os.environ['USE_LOCAL_STORAGE'] = 'false'
+    os.environ['GCS_BUCKET'] = 'ddschedulerbot-files'
+    print("[Pipeline] Using PRODUCTION GCS bucket: ddschedulerbot-files")
+
+# Load .env if present (uses setdefault so --prod overrides above take priority)
 _env_path = REPO_ROOT / '.env'
 if _env_path.exists():
     with open(_env_path) as f:
@@ -571,6 +578,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
+    parser.add_argument('--prod', action='store_true',
+                        help='Read from production GCS bucket (ddschedulerbot-files)')
     subparsers = parser.add_subparsers(dest='command', help='Pipeline commands')
 
     # fetch command

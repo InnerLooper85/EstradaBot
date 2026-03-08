@@ -1366,11 +1366,14 @@ def get_schedule():
         mode = '4day'
 
     if not orders_data:
-        return jsonify({'orders': [], 'stats': {}, 'mode': '4day', 'has_modes': False, 'has_reorder': False})
+        return jsonify({'orders': [], 'stats': {}, 'mode': '4day', 'has_modes': False, 'has_reorder': False,
+                        'is_published': False, 'can_publish': current_user.role in ('admin', 'planner'),
+                        'published_by': ''})
 
     # Apply custom reorder if it exists for this mode
     orders_data, has_reorder = _apply_reorder(orders_data, mode)
 
+    published_by = current_schedule.get('published_by', '')
     return jsonify({
         'orders': orders_data,
         'stats': stats,
@@ -1378,7 +1381,9 @@ def get_schedule():
         'has_modes': resp_has_modes or has_modes is not None,
         'has_reorder': has_reorder,
         'generated_at': current_schedule['generated_at'].isoformat() if current_schedule.get('generated_at') else None,
-        'published_by': current_schedule.get('published_by', '')
+        'published_by': published_by,
+        'is_published': bool(published_by),
+        'can_publish': current_user.role in ('admin', 'planner'),
     })
 
 
