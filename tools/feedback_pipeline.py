@@ -317,7 +317,7 @@ def mark_status(args):
     entry['dev_status_updated_at'] = datetime.now().isoformat()
 
     _save_all(all_entries)
-    print(f"[Pipeline] Entry #{idx}: dev_status '{old_status}' → '{args.dev_status}'")
+    print(f"[Pipeline] Entry #{idx}: dev_status '{old_status}' -> '{args.dev_status}'")
     print(f"  Category: {entry.get('category')}")
     print(f"  Message:  {entry.get('message', '')[:80]}...")
 
