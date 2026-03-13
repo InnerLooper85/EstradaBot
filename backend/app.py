@@ -2422,6 +2422,7 @@ def simulate_with_requests():
             config = {
                 'working_days': custom_config.get('working_days', [0, 1, 2, 3]),
                 'shift_hours': custom_config.get('shift_hours', 12),
+                'label': custom_scenario.get('label', 'Custom'),
             }
         else:
             config = SCENARIO_CONFIGS[scenario_key]
@@ -2659,6 +2660,7 @@ def generate_final_schedule():
             config = {
                 'working_days': custom_config.get('working_days', [0, 1, 2, 3]),
                 'shift_hours': custom_config.get('shift_hours', 12),
+                'label': custom_scenario.get('label', 'Custom'),
             }
         else:
             config = SCENARIO_CONFIGS[scenario_key]
