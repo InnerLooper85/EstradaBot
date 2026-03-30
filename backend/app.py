@@ -803,9 +803,10 @@ def _reconcile_special_requests(filename: str, file_type: str) -> int:
 # ============== API Routes ==============
 
 # Known OSO sheet names in combo files (mapped to canonical "RawData")
-_OSO_SHEET_NAMES = {'RawData', 'OSO', 'Open Sales Order', 'Sales Order'}
+# Stored lowercase for case-insensitive matching
+_OSO_SHEET_NAMES = {'rawdata', 'oso', 'open sales order', 'sales order'}
 # Known SDR sheet names in combo files
-_SDR_SHEET_NAMES = {'Sheet1', 'Dispatch Report', 'Shop Dispatch', 'SDR'}
+_SDR_SHEET_NAMES = {'sheet1', 'dispatch report', 'shop dispatch', 'sdr'}
 
 
 def _handle_combined_upload(file, filename):
@@ -818,18 +819,18 @@ def _handle_combined_upload(file, filename):
     file.save(temp_path)
 
     wb = openpyxl.load_workbook(temp_path)
-    sheet_names = set(wb.sheetnames)
+    actual_names = list(wb.sheetnames)
 
-    # Find the OSO and SDR sheets
-    oso_sheet = next((s for s in wb.sheetnames if s in _OSO_SHEET_NAMES), None)
-    sdr_sheet = next((s for s in wb.sheetnames if s in _SDR_SHEET_NAMES), None)
+    # Find the OSO and SDR sheets (case-insensitive)
+    oso_sheet = next((s for s in actual_names if s.lower() in _OSO_SHEET_NAMES), None)
+    sdr_sheet = next((s for s in actual_names if s.lower() in _SDR_SHEET_NAMES), None)
 
     if not oso_sheet and not sdr_sheet:
         wb.close()
         os.unlink(temp_path)
         return jsonify({
             'error': f'Combined file not recognized. Expected sheets like "OSO"/"RawData" '
-                     f'and "Dispatch Report"/"Sheet1", but found: {", ".join(wb.sheetnames)}'
+                     f'and "Dispatch Report"/"Sheet1", but found: {", ".join(actual_names)}'
         }), 400
 
     uploaded = []
@@ -842,8 +843,14 @@ def _handle_combined_upload(file, filename):
         for s in oso_wb.sheetnames:
             if s != oso_sheet:
                 del oso_wb[s]
-        # Rename to RawData for consistency with the parser
-        oso_wb[oso_sheet].title = 'RawData'
+        # Rename to RawData for consistency with the parser.
+        # openpyxl treats sheet names as case-insensitive for collision
+        # detection, so a two-step rename avoids "RawData1" when the
+        # source name differs only by case (e.g. "rawdata" → "RawData").
+        ws = oso_wb[oso_sheet]
+        if ws.title != 'RawData':
+            ws.title = '_tmp_rename_'
+            ws.title = 'RawData'
 
         # Scrub sensitive columns
         ws = oso_wb['RawData']
@@ -952,14 +959,17 @@ def upload_file():
             sensitive_headers = ['unit price', 'net price', 'customer address', 'address']
 
             # Drop all sheets except RawData/OSO (SAP exports include many extra tabs)
-            target_sheet = next((s for s in wb.sheetnames if s in _OSO_SHEET_NAMES), None)
+            target_sheet = next((s for s in wb.sheetnames if s.lower() in _OSO_SHEET_NAMES), None)
             if not target_sheet:
                 wb.close()
                 os.unlink(temp_path)
                 return jsonify({'error': f'Invalid file: expected a "RawData" or "OSO" sheet but found: {", ".join(wb.sheetnames)}'}), 400
             # Rename to RawData for consistency with the parser
+            # Two-step rename avoids openpyxl case-insensitive collision
             if target_sheet != 'RawData':
-                wb[target_sheet].title = 'RawData'
+                ws_target = wb[target_sheet]
+                ws_target.title = '_tmp_rename_'
+                ws_target.title = 'RawData'
                 target_sheet = 'RawData'
             sheets_to_remove = [s for s in wb.sheetnames if s != target_sheet]
             for sheet_name in sheets_to_remove:
