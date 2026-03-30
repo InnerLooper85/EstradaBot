@@ -312,3 +312,72 @@ class TestFileHotListEndpoint:
         """Unauthenticated access should be redirected."""
         response = client.get('/api/planner/file-hot-list')
         assert response.status_code in (302, 401)
+
+
+class TestCombinedUpload:
+    """Tests for combined OSO+SDR file upload (GH #46)."""
+
+    def _make_combined_xlsx(self, oso_sheet_name, sdr_sheet_name):
+        """Create a minimal combined xlsx in memory with given sheet names."""
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        # Rename default sheet to the OSO name
+        ws_oso = wb.active
+        ws_oso.title = oso_sheet_name
+        ws_oso.append(['Order', 'Description'])
+        ws_oso.append(['WO-001', 'Test Stator'])
+        # Add SDR sheet
+        ws_sdr = wb.create_sheet(title=sdr_sheet_name)
+        ws_sdr.append(['Order', 'Operation'])
+        ws_sdr.append(['WO-001', '100'])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf
+
+    def test_combined_upload_standard_names(self, auth_client):
+        """Combined file with standard sheet names should succeed."""
+        data = self._make_combined_xlsx('RawData', 'Sheet1')
+        response = auth_client.post('/api/upload', data={
+            'file': (data, 'COMB_Report.xlsx'),
+            'type': 'combined_report',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result['success'] is True
+        assert len(result['split_into']) == 2
+
+    def test_combined_upload_case_insensitive(self, auth_client):
+        """Combined file with differently-cased sheet names should succeed."""
+        data = self._make_combined_xlsx('rawdata', 'sheet1')
+        response = auth_client.post('/api/upload', data={
+            'file': (data, 'COMB_Report.xlsx'),
+            'type': 'combined_report',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result['success'] is True
+        assert len(result['split_into']) == 2
+
+    def test_combined_upload_uppercase_names(self, auth_client):
+        """Combined file with uppercase sheet names should succeed."""
+        data = self._make_combined_xlsx('OSO', 'SDR')
+        response = auth_client.post('/api/upload', data={
+            'file': (data, 'COMB_Report.xlsx'),
+            'type': 'combined_report',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result['success'] is True
+
+    def test_combined_upload_unrecognized_sheets(self, auth_client):
+        """Combined file with unknown sheet names should return 400."""
+        data = self._make_combined_xlsx('FooBar', 'BazQux')
+        response = auth_client.post('/api/upload', data={
+            'file': (data, 'COMB_Report.xlsx'),
+            'type': 'combined_report',
+        }, content_type='multipart/form-data')
+        assert response.status_code == 400
+        result = response.get_json()
+        assert 'not recognized' in result['error']
