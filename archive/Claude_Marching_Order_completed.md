@@ -1,3 +1,7 @@
+**Archived:** March 30, 2026. **Reason:** All marching order items completed as of MVP 2.0.3.
+
+---
+
 # Claude Marching Orders
 
 *All items from the original 2/4/26 marching orders have been completed as of MVP 2.0.3.*

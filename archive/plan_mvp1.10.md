@@ -1,3 +1,7 @@
+**Archived:** March 30, 2026. **Reason:** MVP 1.10 implementation plan — all items completed and deployed.
+
+---
+
 # MVP 1.10 Implementation Plan
 
 ## Design Decisions (Confirmed)

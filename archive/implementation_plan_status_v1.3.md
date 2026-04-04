@@ -1,3 +1,7 @@
+**Archived:** March 30, 2026. **Reason:** Outdated MVP 1.0 status document (references "EstradaBot" — project is now DDSchedulerBot). Current status tracked in `planning/state.md` and `planning/roadmap.md`.
+
+---
+
 # EstradaBot — Implementation Status
 
 **Document Version:** 1.3

@@ -1,6 +1,6 @@
 # DDSchedulerBot / DynaBot — Session Memory
 
-**Last updated:** March 8, 2026
+**Last updated:** March 30, 2026
 **Current deployed version:** MVP 2.0.0 (on master + dev, deployed to Cloud Run)
 
 ---
@@ -54,6 +54,8 @@
 ---
 
 ## Active Debugging Session (Mar 2026)
+
+**Status as of March 30, 2026:** Partially resolved. Some fixes confirmed (see 'Confirmed Fixed' section). Open bugs need retesting after WO normalization fix.
 
 ### Confirmed Fixed
 - TECO orders correctly excluded
